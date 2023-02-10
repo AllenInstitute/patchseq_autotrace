@@ -1,0 +1,11 @@
+argschema==3.0.1
+pandas==1.5.3
+opencv-python==4.7.0.68
+numpy==1.22.3
+allensdk==2.15.1
+tifffile==2023.1.23.1
+glymur==0.8.19
+marshmallow==3.19.0
+scipy==1.10.0
+scikit-image==0.19.3
+tqdm==4.64.1
