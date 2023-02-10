@@ -1,9 +1,19 @@
 import os
 from datetime import date
 from patchseq_autotrace.slurm_tools.Slurm_DAG import Slurm_DAG
+from patchseq_autotrace import __version__ as autotrace_code_version
 
 
 def remove_already_autotrace_specimens(input_df, specimen_id_col, autotrace_root_dir, model_name_col):
+    """
+    Will remove already autotraced specimens from the current que dataframe
+
+    :param input_df: (DataFrame): input dataframe
+    :param specimen_id_col: (str): column indicating specimen id
+    :param autotrace_root_dir: (str): autotrace root directory to search through
+    :param model_name_col: (str): column indicating model to use
+    :return input_df: (DataFrame) modified input dataframe with already autotraced cells removed
+    """
     # check the specimen ids to see if they have been autotraced yet
     remove_from_this_run = []
     for idx, row in input_df.iterrows():
@@ -11,7 +21,7 @@ def remove_already_autotrace_specimens(input_df, specimen_id_col, autotrace_root
         if specimen_id is not None:
             model_name = row[model_name_col]
             spdir = os.path.join(autotrace_root_dir, specimen_id)
-            newest_raw_name = os.path.join(spdir, "SWC", "Raw", "{}_{}_1.0.swc".format(specimen_id, model_name))
+            newest_raw_name = os.path.join(spdir, "SWC", "Raw", "{}_{}_{}_1.0.swc".format(specimen_id, model_name, autotrace_code_version))
 
             if os.path.exists(newest_raw_name):
                 remove_from_this_run.append(specimen_id)
@@ -23,6 +33,24 @@ def remove_already_autotrace_specimens(input_df, specimen_id_col, autotrace_root
 
 def submit_specimen_pipeline_to_slurm(specimen_id, autotrace_directory, chunk_size, model_name, virtualenvironment,
                                       parent_job_id, start_condition, gpu_device):
+    """
+    Will create a slurm workflow DAG for each step in the autotrace pipeline for the given specimen and submit the
+    jobs to the slurm scheduler. Each step of the pipeline requires that the previous step be completed without fail
+    (i.e. slurm dependency afterok). The kill-on-invalid-dep keyword will cause a job to be killed if the dependency
+    will never be met (e.g. the parent job failed but the afterok keyword was supplied).
+
+    TODO dynamically request resources depending on size of specimen image stack. Also considering disc quota
+
+    :param specimen_id: (int): specimen id
+    :param autotrace_directory: (str): path to root (all specimens) autotrace directory
+    :param chunk_size: (int): number of z-slices in segmentation bounding box
+    :param model_name: (str): model name, used to find model checkpoint files and hardcoded thresholds
+    :param virtualenvironment: (str): name of virtual environment to be activated on HPC
+    :param parent_job_id: (int): the job id that this specimen must wait to finish before it is allowed to begin
+    :param start_condition: (str): slurm depednency conditions (afterok, afterany, etc.)
+    :param gpu_device: (int): which gpu device to use for segmentation
+    :return:
+    """
     specimen_dir = os.path.abspath(os.path.join(autotrace_directory, str(specimen_id)))
     if not os.path.exists(specimen_dir):
         os.mkdir(specimen_dir)
@@ -116,7 +144,7 @@ def submit_specimen_pipeline_to_slurm(specimen_id, autotrace_directory, chunk_si
     # Cleanup
     cleanup_job_file = os.path.join(job_dir, f"{specimen_id}_cleanup.sh")
     cleanup_kwargs = {
-        "--job-name": f"stack2swc-{specimen_id}",
+        "--job-name": f"cleanup-{specimen_id}",
         "--mail-type": "NONE",
         "--cpus-per-task": "8",
         "--nodes": "1",
