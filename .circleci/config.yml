@@ -21,17 +21,15 @@ jobs:
   test_linux:
     docker:
       - image: cimg/base:stable
-
+    # required line?
+    working_directory: ~/repo
     steps:
       - checkout
       - run:
           name: create conda env
           command: |
-            if [ ! -d ~/.conda_envs/build_env ]; then
-              conda create python=3.9
-              -p ~/.conda_envs/build_env/
-            fi
-            conda activate ~/.conda_envs/build_env_wfenics
+            conda create -n build_env python=3.9
+            conda activate build_env
             pip install -r requirements.txt
             pip install .
 
