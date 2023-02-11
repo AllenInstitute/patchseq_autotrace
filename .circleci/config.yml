@@ -18,9 +18,27 @@ jobs:
           name: "Say hello"
           command: "echo Hello, World!"
 
+  test_linux:
+    docker:
+      - image: cimg/base:stable
+
+    steps:
+      - checkout
+      - run:
+          name: create conda env
+          command: |
+            if [ ! -d ~/.conda_envs/build_env ]; then
+              conda create python=3.9
+              -p ~/.conda_envs/build_env/
+            fi
+            conda activate ~/.conda_envs/build_env_wfenics
+            pip install -r requirements.txt
+            pip install .
+
 # Invoke jobs via workflows
 # See: https://circleci.com/docs/2.0/configuration-reference/#workflows
 workflows:
   say-hello-workflow:
     jobs:
       - say-hello
+      - test_linux
