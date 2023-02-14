@@ -608,8 +608,8 @@ def skeleton_to_swc(specimen_dir, model_and_version, max_stack_size=7000000000):
     skeleton_coord_labels_dict = {}
     for n in skeleton_labeled.index:
         skeleton_coord_labels_dict[
-            (skeleton_labeled.loc[n].values[0], skeleton_labeled.loc[n].values[1], skeleton_labeled.loc[n].values[2])] = \
-            skeleton_labeled.loc[n].values[3]
+            (skeleton_labeled.loc[n]['x'], skeleton_labeled.loc[n]['y'], skeleton_labeled.loc[n]['z'])] = \
+            skeleton_labeled.loc[n]['node_type']
 
     # Make swc list for swc file writing
     swc_list = []
