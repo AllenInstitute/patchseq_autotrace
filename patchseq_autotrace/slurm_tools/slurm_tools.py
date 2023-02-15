@@ -100,7 +100,7 @@ def submit_specimen_pipeline_to_slurm(specimen_id, autotrace_directory, chunk_si
         "--kill-on-invalid-dep": "yes",
         "--cpus-per-task": "8",
         "--mem": "62gb",
-        "--time": "150:00:00",
+        "--time": "72:00:00",
         "--gpus": "v100:1",
         "--partition": "celltypes",
         "--output": os.path.join(job_dir, f"{specimen_id}_segmentation.log")
@@ -117,7 +117,7 @@ def submit_specimen_pipeline_to_slurm(specimen_id, autotrace_directory, chunk_si
         "--nodes": "1",
         "--kill-on-invalid-dep": "yes",
         "--mem": "120gb",
-        "--time": "100:00:00",
+        "--time": "48:00:00",
         "--partition": "celltypes",
         "--output": os.path.join(job_dir, f"{specimen_id}_post_proc.log")
 
@@ -134,7 +134,7 @@ def submit_specimen_pipeline_to_slurm(specimen_id, autotrace_directory, chunk_si
         "--nodes": "1",
         "--kill-on-invalid-dep": "yes",
         "--mem": "120gb",
-        "--time": "100:00:00",
+        "--time": "48:00:00",
         "--partition": "celltypes",
         "--output": os.path.join(job_dir, f"{specimen_id}_stack_2_swc.log")
     }
@@ -156,7 +156,6 @@ def submit_specimen_pipeline_to_slurm(specimen_id, autotrace_directory, chunk_si
     }
     cleanup_command = f"auto-cleanup --specimen_dir {specimen_dir} "
     cleanup_command_list = ["source ~/.bashrc", f"conda activate {virtualenvironment}", cleanup_command]
-
 
     # Build the node list needed to construct a workflow dag
     slurm_dag_node_list = [
