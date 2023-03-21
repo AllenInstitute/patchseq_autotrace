@@ -317,7 +317,7 @@ def get_soma_xyz(max_intensity_proj_ch1_pth, yz_mip_pth, specimen_id, min_pixel_
     yz_conn_comps[yz_conn_comps != yz_conn_comp_label] = 0
     yz_conn_comps[yz_conn_comps == yz_conn_comp_label] = 1
 
-    chosen_zs, _ = np.where(yz_conn_comps == 1)
+    _, chosen_zs = np.where(yz_conn_comps == 1)
 
     centroid = (np.mean(chosen_xs), np.mean(chosen_ys), np.mean(chosen_zs))
 
