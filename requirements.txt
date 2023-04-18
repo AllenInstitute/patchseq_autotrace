@@ -239,6 +239,11 @@ xarray==2023.1.0
     # via allensdk
 yarl==1.8.2
     # via aiohttp
-
+neuroseg
+    # added manually post-hoc to preserve versions
+    # -r requirements.in
+pg8000
+    # added manually post-hoc to preserve versions
+    # -r requirements.in
 # The following packages are considered to be unsafe in a requirements file:
 # setuptools

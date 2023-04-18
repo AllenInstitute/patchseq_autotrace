@@ -1,10 +1,10 @@
 import os
 import tifffile as tif
-from neurotorch.nets.RSUNetMulti import RSUNetMulti
-from neurotorch.core.predictor_multilabel import Predictor
-from neurotorch.datasets.datatypes import (BoundingBox, Vector)
-from neurotorch.datasets.filetypes import TiffVolume
-from neurotorch.datasets.dataset import Array
+from neuroseg.nets.RSUNetMulti import RSUNetMulti
+from neuroseg.core.predictor_multilabel import Predictor
+from neuroseg.datasets.datatypes import (BoundingBox, Vector)
+from neuroseg.datasets.filetypes import TiffVolume
+from neuroseg.datasets.dataset import Array
 import numpy as np
 from patchseq_autotrace.statics import MODEL_NAME_PATHS
 from patchseq_autotrace.utils import natural_sort, get_tifs
