@@ -9,3 +9,5 @@ marshmallow==3.19.0
 scipy==1.10.0
 scikit-image==0.19.3
 tqdm==4.64.1
+neuroseg
+pg8000
