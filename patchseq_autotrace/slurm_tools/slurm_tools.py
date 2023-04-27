@@ -106,7 +106,7 @@ def submit_specimen_pipeline_to_slurm(specimen_id, autotrace_directory, chunk_si
         "--mem": "62gb",
         "--time": "72:00:00",
         "--gpus": "v100:1",
-        "--partition": "celltypes", #change this to celltypesgpu
+        "--partition": "celltypesgpu", #change this to celltypesgpu
         "--output": os.path.join(job_dir, f"{specimen_id}_segmentation.log")
     }
     seg_command = f"auto-segmentation --specimen_dir {specimen_dir} --chunk_size {chunk_size} --model_name {model_name} --gpu_device {gpu_device}"
