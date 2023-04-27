@@ -32,7 +32,7 @@ def remove_already_autotrace_specimens(input_df, specimen_id_col, autotrace_root
 
 
 def submit_specimen_pipeline_to_slurm(specimen_id, autotrace_directory, chunk_size, model_name, virtualenvironment,
-                                      parent_job_id, start_condition, gpu_device):
+                                      parent_job_id, start_condition, gpu_device, static_jp2_paths_file):
     """
     Will create a slurm workflow DAG for each step in the autotrace pipeline for the given specimen and submit the
     jobs to the slurm scheduler. Each step of the pipeline requires that the previous step be completed without fail
@@ -49,6 +49,7 @@ def submit_specimen_pipeline_to_slurm(specimen_id, autotrace_directory, chunk_si
     :param parent_job_id: (int): the job id that this specimen must wait to finish before it is allowed to begin
     :param start_condition: (str): slurm depednency conditions (afterok, afterany, etc.)
     :param gpu_device: (int): which gpu device to use for segmentation
+    :param static_jp2_paths_file: (str): path to workaround json for getting jp2 paths on aws
     :return:
     """
     specimen_dir = os.path.abspath(os.path.join(autotrace_directory, str(specimen_id)))
@@ -88,7 +89,10 @@ def submit_specimen_pipeline_to_slurm(specimen_id, autotrace_directory, chunk_si
         "--partition": "celltypes",
         "--output": os.path.join(job_dir, f"{specimen_id}_pre_proc.log")
     }
-    pre_proc_command = f"auto-pre-proc --specimen_dir {specimen_dir} --chunk_size {chunk_size}"
+    pre_proc_command = f"auto-pre-proc --specimen_dir {specimen_dir} --chunk_size {chunk_size} --static_jp2_paths_file {static_jp2_paths_file}"
+    if static_jp2_paths_file is None:
+        pre_proc_command = pre_proc_command.replace(f"--static_jp2_paths_file {static_jp2_paths_file}" , "")
+
     pre_proc_command_list = ["source ~/.bashrc", f"conda activate {virtualenvironment}", pre_proc_command]
 
     # Segmentation
@@ -102,7 +106,7 @@ def submit_specimen_pipeline_to_slurm(specimen_id, autotrace_directory, chunk_si
         "--mem": "62gb",
         "--time": "72:00:00",
         "--gpus": "v100:1",
-        "--partition": "celltypes",
+        "--partition": "celltypes", #change this to celltypesgpu
         "--output": os.path.join(job_dir, f"{specimen_id}_segmentation.log")
     }
     seg_command = f"auto-segmentation --specimen_dir {specimen_dir} --chunk_size {chunk_size} --model_name {model_name} --gpu_device {gpu_device}"

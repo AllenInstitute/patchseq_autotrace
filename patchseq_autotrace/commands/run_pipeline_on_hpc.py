@@ -28,6 +28,8 @@ class IO_Schema(ags.ArgSchema):
 
     max_num_specimens_at_once = ags.fields.Int(description="maximum number of specimens to be running at once on hpc")
 
+    static_jp2_paths_file = ags.fields.InputFile(default=None, allow_none =True, description = "temporary workaround to get tests running on aws hpc")
+
 
 def main(args, **kwargs):
     specimen_file = args['specimen_file']
@@ -38,6 +40,10 @@ def main(args, **kwargs):
     virtual_environment = args['virtual_environment']
     autotrace_root_directory = args['autotrace_root_directory']
     max_n = args['max_num_specimens_at_once']
+    static_jp2_paths_file = args['static_jp2_paths_file']
+    if static_jp2_paths_file is not None:
+        static_jp2_paths_file = os.path.abspath(static_jp2_paths_file)
+    print(f"static_jp2_paths_file: \n      {static_jp2_paths_file}")
 
     if not os.path.exists(specimen_file):
         raise ValueError("Specified input path does not exist")
@@ -90,7 +96,8 @@ def main(args, **kwargs):
                                                                       virtualenvironment=virtual_environment,
                                                                       parent_job_id=parent_job_id,
                                                                       start_condition=start_condition,
-                                                                      gpu_device=gpu_device)
+                                                                      gpu_device=gpu_device,
+                                                                      static_jp2_paths_file=static_jp2_paths_file)
 
             # Now cells from the subsequent batches will have to wait for an opening in a previous batch
             curr_parent_job_id_list.append(specimens_last_job_id)

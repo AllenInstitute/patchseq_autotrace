@@ -12,7 +12,7 @@ def run_converter(cvrt, e):
     cvrt.run()
 
 
-def get_image_stack_for_specimen(specimen_id, tif_output_directory, downsample=1, parallel=True):
+def get_image_stack_for_specimen(specimen_id, tif_output_directory, static_jp2_paths_file, downsample=1, parallel=True):
     """
     Will convert LIMS jp2ks to tif files
 
@@ -26,7 +26,7 @@ def get_image_stack_for_specimen(specimen_id, tif_output_directory, downsample=1
     if not os.path.exists(tif_output_directory):
         os.mkdir(tif_output_directory)
 
-    arg_dicts = query_jp2_paths_and_indices(specimen_id)
+    arg_dicts = query_jp2_paths_and_indices(specimen_id, static_paths_json=static_jp2_paths_file)
     parallel_inputs = []
     for d in arg_dicts:
 

@@ -102,6 +102,17 @@ class JP2ToTiff(ags.ArgSchemaParser):
     default_schema = ConverterSchema
 
     def __init__(self, args):
+        """
+        convert a jp2 image to a tif image
+
+        :param args: a python dictionary with the following key/values
+            :key x_ind: x dimension index for image ROI
+            :key y_in: y dimension index for image ROI
+            :key input_jp2: path to jp2 to convert to tiff
+            :key downsample: size at which to downsample, 1 = no downsampling
+            :key block_read: load jp2 in blocks to avoid crashes
+            :key tiff_output_file: path where to write output tif file
+        """
         self.args = args
 
     def run(self):

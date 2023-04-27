@@ -1,6 +1,7 @@
 import re
 import os
 import cv2
+import json
 from tqdm import tqdm
 import numpy as np
 import pandas as pd
@@ -22,28 +23,51 @@ def default_query_engine():
     )
 
 
-def query_jp2_paths_and_indices(specimen_id, query_engine=None):
-    """Get an SWC file path for a specimen ID using the specified query engine"""
-    if query_engine is None:
-        query_engine = default_query_engine()
-
-    query = f"""
-    SELECT  si.x AS x_ind, si.y AS y_ind , sl.storage_directory || im.jp2  AS input_jp2     
-    FROM image_series iser     
-    JOIN image_series_slides iss 
-    ON iss.image_series_id=iser.id     
-    JOIN slides sl ON sl.id=iss.slide_id     
-    JOIN images im ON im.slide_id=sl.id 
-    AND im.image_type_id = 1     
-    JOIN sub_images si ON si.image_id=im.id     
-    WHERE iser.specimen_id = {int(specimen_id)} 
-    order by input_jp2 desc;
+def query_jp2_paths_and_indices(specimen_id, query_engine=None,static_paths_json=None):
+    """
+    Will return a list of dictionaries giving the path to jp2 files.
     """
 
-    results = query_engine(query)
+    try:
+        if query_engine is None:
+            query_engine = default_query_engine()
+
+        query = f"""
+        SELECT  si.x AS x_ind, si.y AS y_ind , sl.storage_directory || im.jp2  AS input_jp2     
+        FROM image_series iser     
+        JOIN image_series_slides iss 
+        ON iss.image_series_id=iser.id     
+        JOIN slides sl ON sl.id=iss.slide_id     
+        JOIN images im ON im.slide_id=sl.id 
+        AND im.image_type_id = 1     
+        JOIN sub_images si ON si.image_id=im.id     
+        WHERE iser.specimen_id = {int(specimen_id)} 
+        order by input_jp2 desc;
+        """
+
+        results = query_engine(query)
+
+    except:
+        results = []
+        # static_paths_json = "/data/data/AWS_AutotraceTest_Paths.json"
+        if static_paths_json is not None:
+            with open(static_paths_json, "r") as f:
+                paths_dict_list = json.load(f)['all_cells_jp2_paths']
+            aibs_result = [sub_dict for sub_dict in paths_dict_list if sub_dict['specimen_id'] == int(specimen_id)][0]
+            results = []
+            for aibs_path in aibs_result['jp2_paths']:
+                s3_path = aibs_path.replace("/allen/programs/celltypes/production/", "/data/data/")
+                d = {}
+                d['input_jp2'] = s3_path
+                d['x_ind'] = 1
+                d['y_ind'] = 1
+                print(d)
+                results.append(d)
+        else:
+            print("Could not complete query for jp2 paths and no static jp2 paths json provided. Nothing to return")
+
 
     return results
-
 
 def get_63x_soma_coords(specimen_id, query_engine=None):
     """
@@ -53,42 +77,47 @@ def get_63x_soma_coords(specimen_id, query_engine=None):
     :param query_engine: functools.partial
     :return: (array, array) x and y coordinates
     """
-    if not query_engine:
-        query_engine = default_query_engine()
 
-    query = """
-    select max(id) as image_series_id from image_series
-    where specimen_id = {}
-    group by specimen_id""".format(int(specimen_id))
-    imser_id_63x = query_engine(query)[0]['image_series_id']
+    try:
+        if not query_engine:
+            query_engine = default_query_engine()
 
-    sql_query = """
-    select distinct 
-                cell.id as cell_id, 
-                ims63.id as image_series_63, 
-                layert.name as layer_type, 
-                si.specimen_tissue_index as z_index, 
-                poly.path as poly_path
-    from specimens cell
-    join image_series ims63 on ims63.specimen_id = cell.id
-    join sub_images si on si.image_series_id = ims63.id
-    join avg_graphic_objects layer on layer.sub_image_id = si.id
-    join avg_group_labels layert on layert.id = layer.group_label_id
-    join avg_graphic_objects poly on poly.parent_id = layer.id
-    where ims63.id = {}
-    """.format(imser_id_63x)
+        query = """
+        select max(id) as image_series_id from image_series
+        where specimen_id = {}
+        group by specimen_id""".format(int(specimen_id))
+        imser_id_63x = query_engine(query)[0]['image_series_id']
 
-    res = query_engine(sql_query)
-    soma_res = [d for d in res if d['layer_type'] == 'Soma']
-    if len(soma_res) == 0:
+        sql_query = """
+        select distinct 
+                    cell.id as cell_id, 
+                    ims63.id as image_series_63, 
+                    layert.name as layer_type, 
+                    si.specimen_tissue_index as z_index, 
+                    poly.path as poly_path
+        from specimens cell
+        join image_series ims63 on ims63.specimen_id = cell.id
+        join sub_images si on si.image_series_id = ims63.id
+        join avg_graphic_objects layer on layer.sub_image_id = si.id
+        join avg_group_labels layert on layert.id = layer.group_label_id
+        join avg_graphic_objects poly on poly.parent_id = layer.id
+        where ims63.id = {}
+        """.format(imser_id_63x)
 
+        res = query_engine(sql_query)
+        soma_res = [d for d in res if d['layer_type'] == 'Soma']
+        if len(soma_res) == 0:
+
+            return None, None
+        else:
+            soma_res = soma_res[0]
+            all_soma_coords = soma_res['poly_path']
+            xs = list(map(int, all_soma_coords.split(",")[::2]))
+            ys = list(map(int, all_soma_coords.split(",")[1::2]))
+            return xs, ys
+    except:
+        print("Unabel to query lims for 63x soma coords, defaulting to naive soma location method")
         return None, None
-    else:
-        soma_res = soma_res[0]
-        all_soma_coords = soma_res['poly_path']
-        xs = list(map(int, all_soma_coords.split(",")[::2]))
-        ys = list(map(int, all_soma_coords.split(",")[1::2]))
-        return xs, ys
 
 
 def natural_sort(l):

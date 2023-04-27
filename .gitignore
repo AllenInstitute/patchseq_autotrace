@@ -1,6 +1,7 @@
 # Pipeline Tests
 **/TestAutotraceDir/
 test_specimens.csv
+aws_commands.sh
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

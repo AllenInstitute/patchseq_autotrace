@@ -161,10 +161,7 @@ def get_soma_xyz(max_intensity_proj_ch1_pth, yz_mip_pth, specimen_id, min_pixel_
 
     # if we can get 63x soma coordinates from LIMS we will use those as our x and y
     # then we only need to solve for z
-    try:
-        xs_63x, ys_63x = get_63x_soma_coords(specimen_id)
-    except:
-        xs_63x, ys_63x = None, None
+    xs_63x, ys_63x = get_63x_soma_coords(specimen_id)
     spacer = 300
 
     if (xs_63x != None) and (ys_63x != None):
