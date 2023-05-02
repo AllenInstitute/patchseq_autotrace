@@ -21,6 +21,9 @@ class IO_Schema(ags.ArgSchema):
     gpu_device = ags.fields.Int(default=0,
                                 description="which gpu device to use for segmentation")
 
+    gpu_batch_size = ags.fields.Int(default=100,
+                                    description="number of batches (i.e. segmentation patches) to segment at once")
+
     virtual_environment = ags.fields.Str(description="Name of virtual environment")
 
     autotrace_root_directory = ags.fields.InputDir(default="/allen/programs/celltypes/workgroups/mousecelltypes"
@@ -39,6 +42,8 @@ def main(args, **kwargs):
     gpu_device = args['gpu_device']
     virtual_environment = args['virtual_environment']
     autotrace_root_directory = args['autotrace_root_directory']
+    gpu_batch_size = args['gpu_batch_size']
+
     max_n = args['max_num_specimens_at_once']
     static_jp2_paths_file = args['static_jp2_paths_file']
     if static_jp2_paths_file is not None:
@@ -97,6 +102,7 @@ def main(args, **kwargs):
                                                                       parent_job_id=parent_job_id,
                                                                       start_condition=start_condition,
                                                                       gpu_device=gpu_device,
+                                                                      gpu_batch_size=gpu_batch_size,
                                                                       static_jp2_paths_file=static_jp2_paths_file)
 
             # Now cells from the subsequent batches will have to wait for an opening in a previous batch

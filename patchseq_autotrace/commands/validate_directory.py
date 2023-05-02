@@ -14,6 +14,7 @@ class IO_Schema(ags.ArgSchema):
     chunk_size = ags.fields.Int(default=32, description="Num Tif Images to Stack into Chunks")
     model_name = ags.fields.Str(description='path to model checkpoint')
     gpu_device = ags.fields.Int(default=0)
+    gpu_batch_size = ags.fields.Int(default=100)
 
 
 def main(args, **kwargs):
@@ -21,6 +22,7 @@ def main(args, **kwargs):
     chunk_size = args['chunk_size']
     model_name = args['model_name']
     gpu_device = args['gpu_device']
+    gpu_batch_size = args['gpu_batch_size']
 
     specimen_id = os.path.basename(os.path.abspath(specimen_dir))
     chunk_dir = os.path.join(specimen_dir, 'Chunks_of_{}'.format(chunk_size))
@@ -30,7 +32,7 @@ def main(args, **kwargs):
     # df = pd.read_csv(bbox_path)
     # bb = df.bound_boxing.values
 
-    validate(model_name, specimen_dir, chunk_dir, bb, gpu_device, chunk_size)
+    validate(model_name, specimen_dir, chunk_dir, bb, gpu_device, chunk_size, gpu_batch_size)
 
 
 def console_script():

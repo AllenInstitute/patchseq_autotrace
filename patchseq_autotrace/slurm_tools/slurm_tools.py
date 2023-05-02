@@ -32,7 +32,7 @@ def remove_already_autotrace_specimens(input_df, specimen_id_col, autotrace_root
 
 
 def submit_specimen_pipeline_to_slurm(specimen_id, autotrace_directory, chunk_size, model_name, virtualenvironment,
-                                      parent_job_id, start_condition, gpu_device, static_jp2_paths_file):
+                                      parent_job_id, start_condition, gpu_device, gpu_batch_size, static_jp2_paths_file):
     """
     Will create a slurm workflow DAG for each step in the autotrace pipeline for the given specimen and submit the
     jobs to the slurm scheduler. Each step of the pipeline requires that the previous step be completed without fail
@@ -109,7 +109,7 @@ def submit_specimen_pipeline_to_slurm(specimen_id, autotrace_directory, chunk_si
         "--partition": "celltypesgpu", #change this to celltypesgpu
         "--output": os.path.join(job_dir, f"{specimen_id}_segmentation.log")
     }
-    seg_command = f"auto-segmentation --specimen_dir {specimen_dir} --chunk_size {chunk_size} --model_name {model_name} --gpu_device {gpu_device}"
+    seg_command = f"auto-segmentation --specimen_dir {specimen_dir} --chunk_size {chunk_size} --model_name {model_name} --gpu_device {gpu_device} --gpu_batch_size {gpu_batch_size}"
     seg_command_list = ["source ~/.bashrc", f"conda activate {virtualenvironment}", seg_command]
 
     # Post-Process Segmentation

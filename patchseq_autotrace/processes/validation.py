@@ -10,7 +10,7 @@ from patchseq_autotrace.statics import MODEL_NAME_PATHS
 from patchseq_autotrace.utils import natural_sort, get_tifs
 
 
-def validate(model_name_version, specimen_dir, chunk_dir, bb, gpu, chunk_size):
+def validate(model_name_version, specimen_dir, chunk_dir, bb, gpu, chunk_size, gpu_batch_size):
     seg_dir = os.path.join(specimen_dir, 'Segmentation')
     if not os.path.isdir(seg_dir):
         os.mkdir(seg_dir)
@@ -32,7 +32,7 @@ def validate(model_name_version, specimen_dir, chunk_dir, bb, gpu, chunk_size):
             # output_volume is a list (len3) of Arrays for each of 3 foreground channels (soma, axon, dendrite)
             output_volume = [Array(np.zeros(inputs.getBoundingBox().getNumpyDim(), dtype=np.uint8)) for _ in range(3)]
             print('bb0', inputs.getBoundingBox())
-            predictor.run(inputs, output_volume)
+            predictor.run(inputs, output_volume, batch_size=gpu_batch_size)
 
             for ch in range(3):
                 ch_dir = os.path.join(seg_dir,"ch{}".format(ch+1))
