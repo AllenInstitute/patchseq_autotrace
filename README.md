@@ -4,16 +4,22 @@ This package supports the patchseq autotrace pipeline to generate automated neur
 
 Installation instructions
 =========================
-WIP 
+
+    conda create -n autotrace_env python=3.9   
+    conda activate autotrace_env  
+    git clone https://github.com/AllenInstitute/patchseq_autotrace.git  
+    cd patchseq_autotrace  
+    pip install -r requirements.txt  
+    pip install .
 
 Internal Allen Institute Use
 ============================
 In order to download image stacks from the internal LIMS system, you must set certain OS environment variables to connect properly.  These include
 
-        LIMS_HOST
-        LIMS_DBNAME
-        LIMS_USER
-        LIMS_PASSWORD
+    LIMS_HOST
+    LIMS_DBNAME
+    LIMS_USER
+    LIMS_PASSWORD
 
 To set these either open a terminal and run the following commands or add the commands to your .bashrc file.
 
