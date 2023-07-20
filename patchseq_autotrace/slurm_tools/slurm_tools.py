@@ -22,12 +22,10 @@ def remove_already_autotrace_specimens(input_df, specimen_id_col, autotrace_root
             model_name = row[model_name_col]
             spdir = os.path.join(autotrace_root_dir, specimen_id)
             newest_raw_name = os.path.join(spdir, "SWC", "Raw", "{}_{}_{}_1.0.swc".format(specimen_id, model_name, autotrace_code_version))
-
             if os.path.exists(newest_raw_name):
-                remove_from_this_run.append(specimen_id)
-
+                remove_from_this_run.append(int(specimen_id))
+    print("Removing {} already auto-traced specimens".format(len(remove_from_this_run)))
     input_df = input_df[~input_df[specimen_id_col].isin(remove_from_this_run)]
-
     return input_df
 
 
