@@ -31,6 +31,13 @@ def main(args, **kwargs):
 
     con = sqlite3.connect(database_file)
     cur = con.cursor()
+
+    # check that the specimen records table exists
+    res = cur.execute("SELECT name FROM sqlite_master")
+    if ("specimen_records",) not in res.fetchall():
+        cur.execute(
+            "CREATE TABLE specimen_records(specimen_id, has_raw_autotrace, autotrace_version, file_generated_timestamp)")
+
     res = cur.execute("SELECT * FROM specimen_records")
     existing_specimen_records = res.fetchall()
     package_list = []
