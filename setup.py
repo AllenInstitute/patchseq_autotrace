@@ -29,6 +29,6 @@ if __name__ == "__main__":
         description="Execution of patchseq slice autotrace pipeline",
         packages=find_packages(),
         install_requires=required,
-        package_data={"data": ["*.ckpt"]},
+        package_data={"patchseq_autotrace": ["data/*.ckpt"]},
         include_package_data=True,
     )
