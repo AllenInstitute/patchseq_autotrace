@@ -1,5 +1,6 @@
 import os
-from datetime import date
+import datetime
+import sqlite3
 from patchseq_autotrace.slurm_tools.Slurm_DAG import Slurm_DAG
 from patchseq_autotrace import __version__ as autotrace_code_version
 
@@ -30,7 +31,7 @@ def remove_already_autotrace_specimens(input_df, specimen_id_col, autotrace_root
 
 
 def submit_specimen_pipeline_to_slurm(specimen_id, autotrace_directory, chunk_size, model_name, virtualenvironment,
-                                      parent_job_id, start_condition, gpu_device):
+                                      parent_job_id, start_condition, gpu_device, database_file):
     """
     Will create a slurm workflow DAG for each step in the autotrace pipeline for the given specimen and submit the
     jobs to the slurm scheduler. Each step of the pipeline requires that the previous step be completed without fail
@@ -39,6 +40,7 @@ def submit_specimen_pipeline_to_slurm(specimen_id, autotrace_directory, chunk_si
 
     TODO dynamically request resources depending on size of specimen image stack. Also considering disc quota
 
+    :param database_file: path to sqlite .db file
     :param specimen_id: (int): specimen id
     :param autotrace_directory: (str): path to root (all specimens) autotrace directory
     :param chunk_size: (int): number of z-slices in segmentation bounding box
@@ -57,7 +59,7 @@ def submit_specimen_pipeline_to_slurm(specimen_id, autotrace_directory, chunk_si
     if not os.path.exists(specimen_log_dir):
         os.mkdir(specimen_log_dir)
 
-    today = date.today()
+    today = datetime.date.today()
     todays_date = today.strftime("%b_%d_%Y")
     job_dir = os.path.join(specimen_log_dir, todays_date + "_0")
     stop_cond = False
@@ -70,6 +72,23 @@ def submit_specimen_pipeline_to_slurm(specimen_id, autotrace_directory, chunk_si
         else:
             job_dir = "_".join(job_dir.split("_")[0:-1])
             job_dir = job_dir + "_{}".format(ct)
+
+    # Initialize DataBase Tracking
+    submit_to_hpc_datetime = str(datetime.datetime.now())
+    output_dirname = os.path.basename(job_dir)
+    initial_input_tuple = (str(specimen_id), autotrace_code_version, submit_to_hpc_datetime, output_dirname)
+    initial_input_command = """
+    INSERT INTO specimen_runs(specimen_id, patchseq_autotrace_version, submit_datetime, output_dirname) 
+    VALUES (?,?,?,?) 
+    RETURNING run_id
+    """
+    con = sqlite3.connect(database_file)
+    cur = con.cursor()
+    cur.execute(initial_input_command, initial_input_tuple)
+    specimen_runs_row_id = cur.fetchone()[0]
+    con.commit()
+    cur.close()
+    con.close()
 
     # configure slurm resources and commands for each step of processes
 
@@ -86,7 +105,7 @@ def submit_specimen_pipeline_to_slurm(specimen_id, autotrace_directory, chunk_si
         "--partition": "celltypes",
         "--output": os.path.join(job_dir, f"{specimen_id}_pre_proc.log")
     }
-    pre_proc_command = f"auto-pre-proc --specimen_dir {specimen_dir} --chunk_size {chunk_size}"
+    pre_proc_command = f"auto-pre-proc --specimen_dir {specimen_dir} --chunk_size {chunk_size} --sqlite_runs_table_id {specimen_runs_row_id} --autotrace_tracking_database {database_file}"
     pre_proc_command_list = ["source ~/.bashrc", f"conda activate {virtualenvironment}", pre_proc_command]
 
     # Segmentation
@@ -103,7 +122,7 @@ def submit_specimen_pipeline_to_slurm(specimen_id, autotrace_directory, chunk_si
         "--partition": "celltypes",
         "--output": os.path.join(job_dir, f"{specimen_id}_segmentation.log")
     }
-    seg_command = f"auto-segmentation --specimen_dir {specimen_dir} --chunk_size {chunk_size} --model_name {model_name} --gpu_device {gpu_device}"
+    seg_command = f"auto-segmentation --specimen_dir {specimen_dir} --chunk_size {chunk_size} --model_name {model_name} --gpu_device {gpu_device}  --sqlite_runs_table_id {specimen_runs_row_id} --autotrace_tracking_database {database_file}"
     seg_command_list = ["source ~/.bashrc", f"conda activate {virtualenvironment}", seg_command]
 
     # Post-Process Segmentation
@@ -120,7 +139,7 @@ def submit_specimen_pipeline_to_slurm(specimen_id, autotrace_directory, chunk_si
         "--output": os.path.join(job_dir, f"{specimen_id}_post_proc.log")
 
     }
-    post_proc_command = f"auto-post-proc --specimen_dir {specimen_dir} --model_name {model_name} "
+    post_proc_command = f"auto-post-proc --specimen_dir {specimen_dir} --model_name {model_name}  --sqlite_runs_table_id {specimen_runs_row_id} --autotrace_tracking_database {database_file}"
     post_proc_command_list = ["source ~/.bashrc", f"conda activate {virtualenvironment}", post_proc_command]
 
     # Convert Post Processed Skeleton Stack To SWC
@@ -136,7 +155,7 @@ def submit_specimen_pipeline_to_slurm(specimen_id, autotrace_directory, chunk_si
         "--partition": "celltypes",
         "--output": os.path.join(job_dir, f"{specimen_id}_stack_2_swc.log")
     }
-    stack_2_swc_command = f"auto-skeleton-to-swc --specimen_dir {specimen_dir} --model_name {model_name} "
+    stack_2_swc_command = f"auto-skeleton-to-swc --specimen_dir {specimen_dir} --model_name {model_name}  --sqlite_runs_table_id {specimen_runs_row_id} --autotrace_tracking_database {database_file}"
     skeleton_2_swc_command_list = ["source ~/.bashrc", f"conda activate {virtualenvironment}", stack_2_swc_command]
 
     # Cleanup
@@ -152,7 +171,7 @@ def submit_specimen_pipeline_to_slurm(specimen_id, autotrace_directory, chunk_si
         "--partition": "celltypes",
         "--output": os.path.join(job_dir, f"{specimen_id}_cleanup.log")
     }
-    cleanup_command = f"auto-cleanup --specimen_dir {specimen_dir} "
+    cleanup_command = f"auto-cleanup --specimen_dir {specimen_dir} --sqlite_runs_table_id {specimen_runs_row_id} --autotrace_tracking_database {database_file}"
     cleanup_command_list = ["source ~/.bashrc", f"conda activate {virtualenvironment}", cleanup_command]
 
     # Build the node list needed to construct a workflow dag

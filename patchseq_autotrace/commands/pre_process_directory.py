@@ -5,16 +5,28 @@ from patchseq_autotrace.processes.pre_process import (crop_dimensions, crop_and_
                                                       solve_for_bounding_box, convert_stack_to_3dchunks,
                                                       get_image_stack_for_specimen)
 from patchseq_autotrace.utils import dir_to_mip
+from patchseq_autotrace.database_tools import status_update
 
 
 class IO_Schema(ags.ArgSchema):
     specimen_dir = ags.fields.InputDir(description='Input Subject Directory, expecting Single_Tif_Images subdir exists')
     chunk_size = ags.fields.Int(default=32, description="Num Tif Images to Stack into Chunks")
+    sqlite_runs_table_id = ags.fields.Int(description="unique ID key for runs table in the sqlite .db file")
+    autotrace_tracking_database = ags.fields.InputFile(
+        description="sqlite tracking .db file. This should exist and have specimen_runs table setup as seen in "
+                    "patchseq_autotrace.database_tools prior to running this script")
 
 
 def main(args, **kwargs):
     specimen_dir = args['specimen_dir']
     chunk_size = args['chunk_size']
+    sqlite_runs_table_id = args['sqlite_runs_table_id']
+    autotrace_tracking_database = args['autotrace_tracking_database']
+
+    status_update(database_path=autotrace_tracking_database,
+                  runs_unique_id=sqlite_runs_table_id,
+                  process_name='preprocessing',
+                  state='start')
 
     specimen_id = os.path.basename(os.path.abspath(specimen_dir))
     print(specimen_id)
@@ -49,6 +61,10 @@ def main(args, **kwargs):
         os.mkdir(chunk_dir)
     convert_stack_to_3dchunks(chunk_size, input_image_dir, chunk_dir)
 
+    status_update(database_path=autotrace_tracking_database,
+                  runs_unique_id=sqlite_runs_table_id,
+                  process_name='preprocessing',
+                  state='finish')
 
 def console_script():
     this_module = ags.ArgSchemaParser(schema_type=IO_Schema)
