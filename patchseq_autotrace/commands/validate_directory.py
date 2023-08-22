@@ -2,7 +2,7 @@ import os
 import json
 import argschema as ags
 from patchseq_autotrace.processes.validation import validate
-
+from patchseq_autotrace.database_tools import status_update
 
 class IO_Schema(ags.ArgSchema):
     # expecting that there is already in the specimen_dir:
@@ -14,13 +14,23 @@ class IO_Schema(ags.ArgSchema):
     chunk_size = ags.fields.Int(default=32, description="Num Tif Images to Stack into Chunks")
     model_name = ags.fields.Str(description='path to model checkpoint')
     gpu_device = ags.fields.Int(default=0)
-
+    sqlite_runs_table_id = ags.fields.Int(description="unique ID key for runs table in the sqlite .db file")
+    autotrace_tracking_database = ags.fields.InputFile(
+        description="sqlite tracking .db file. This should exist and have specimen_runs table setup as seen in "
+                    "patchseq_autotrace.database_tools prior to running this script")
 
 def main(args, **kwargs):
     specimen_dir = args['specimen_dir']
     chunk_size = args['chunk_size']
     model_name = args['model_name']
     gpu_device = args['gpu_device']
+    sqlite_runs_table_id = args['sqlite_runs_table_id']
+    autotrace_tracking_database = args['autotrace_tracking_database']
+
+    status_update(database_path=autotrace_tracking_database,
+                  runs_unique_id=sqlite_runs_table_id,
+                  process_name='segmentation',
+                  state='start')
 
     specimen_id = os.path.basename(os.path.abspath(specimen_dir))
     chunk_dir = os.path.join(specimen_dir, 'Chunks_of_{}'.format(chunk_size))
@@ -32,6 +42,10 @@ def main(args, **kwargs):
 
     validate(model_name, specimen_dir, chunk_dir, bb, gpu_device, chunk_size)
 
+    status_update(database_path=autotrace_tracking_database,
+                  runs_unique_id=sqlite_runs_table_id,
+                  process_name='segmentation',
+                  state='finish')
 
 def console_script():
     module = ags.ArgSchemaParser(schema_type=IO_Schema)

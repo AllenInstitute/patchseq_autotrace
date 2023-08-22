@@ -3,6 +3,7 @@ import argschema as ags
 import pandas as pd
 from patchseq_autotrace.slurm_tools.slurm_tools import submit_specimen_pipeline_to_slurm, \
     remove_already_autotrace_specimens
+from patchseq_autotrace.database_tools import create_runs_table
 
 
 class IO_Schema(ags.ArgSchema):
@@ -28,6 +29,8 @@ class IO_Schema(ags.ArgSchema):
 
     max_num_specimens_at_once = ags.fields.Int(description="maximum number of specimens to be running at once on hpc")
 
+    autotrace_tracking_database = ags.fields.OutputFile(default="/allen/programs/celltypes/workgroups/mousecelltypes"
+                                                           "/AutotraceReconstruction/Autotrace_DataBase.db")
 
 def main(args, **kwargs):
     specimen_file = args['specimen_file']
@@ -36,8 +39,12 @@ def main(args, **kwargs):
     chunk_size = args['chunk_size']
     gpu_device = args['gpu_device']
     virtual_environment = args['virtual_environment']
-    autotrace_root_directory = args['autotrace_root_directory']
+    autotrace_root_directory = os.path.abspath(args['autotrace_root_directory'])
     max_n = args['max_num_specimens_at_once']
+    autotrace_tracking_database = os.path.abspath(args['autotrace_tracking_database'])
+
+    # Will create the runs table if it does not exist
+    create_runs_table(autotrace_tracking_database)
 
     if not os.path.exists(specimen_file):
         raise ValueError("Specified input path does not exist")
@@ -90,7 +97,8 @@ def main(args, **kwargs):
                                                                       virtualenvironment=virtual_environment,
                                                                       parent_job_id=parent_job_id,
                                                                       start_condition=start_condition,
-                                                                      gpu_device=gpu_device)
+                                                                      gpu_device=gpu_device,
+                                                                      database_file=autotrace_tracking_database)
 
             # Now cells from the subsequent batches will have to wait for an opening in a previous batch
             curr_parent_job_id_list.append(specimens_last_job_id)
