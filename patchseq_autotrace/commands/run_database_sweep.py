@@ -92,8 +92,8 @@ def main(args, **kwargs):
         cur.execute(insert_cmd)
         con.commit()
 
-    cur.close()
-    con.close()
+        cur.close()
+        con.close()
 
 
 def console_script():
