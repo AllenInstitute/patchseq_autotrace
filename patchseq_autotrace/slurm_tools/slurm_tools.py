@@ -101,7 +101,7 @@ def submit_specimen_pipeline_to_slurm(specimen_id, autotrace_directory, chunk_si
         "--nodes": "1",
         "--kill-on-invalid-dep": "yes",
         "--mem": "80gb",
-        "--time": "2:00:00",
+        "--time": "8:00:00",
         "--partition": "celltypes",
         "--output": os.path.join(job_dir, f"{specimen_id}_pre_proc.log")
     }
