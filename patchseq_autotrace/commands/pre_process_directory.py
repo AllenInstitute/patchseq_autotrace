@@ -53,7 +53,7 @@ def main(args, **kwargs):
     # Generate MIP (memory efficient)
     mip_ofile = os.path.join(specimen_dir, "Single_Tif_Images_Mip.tif")
     if not os.path.exists(mip_ofile):
-        dir_to_mip(indir=input_image_dir, ofile=mip_ofile, max_num_file_to_load=chunk_size, mip_axis=2)
+        dir_to_mip(indir=input_image_dir, ofile=mip_ofile, max_num_file_to_load=chunk_size, mip_axis=0)
 
     # Convert directory with single tif files to 3d chunks for segmentation
     chunk_dir = os.path.join(specimen_dir, "Chunks_of_{}".format(chunk_size))

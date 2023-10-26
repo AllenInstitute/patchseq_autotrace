@@ -40,11 +40,11 @@ def postprocess(specimen_dir, segmentation_dir, model_name, threshold=0.3, size_
         print(chan)
         channel_dir = os.path.join(segmentation_dir, chan)
         xy_mip = os.path.join(specimen_dir, 'MAX_Segmentation_{}.tif'.format(chan))
-        dir_to_mip(indir=channel_dir, ofile=xy_mip, max_num_file_to_load=32, mip_axis=2)
+        dir_to_mip(indir=channel_dir, ofile=xy_mip, max_num_file_to_load=32, mip_axis=0)
 
         if chan == 'ch1':
             yz_mip_ofile = os.path.join(specimen_dir, 'MAX_yz_Segmentation_{}.tif'.format(chan))
-            dir_to_mip(indir=channel_dir, ofile=yz_mip_ofile, max_num_file_to_load=32, mip_axis=1)
+            dir_to_mip(indir=channel_dir, ofile=yz_mip_ofile, max_num_file_to_load=32, mip_axis=2)
 
         # find x,y,z and intensity values for non zero coordinates
         csv_ofile = os.path.join(specimen_dir, "Segmentation_{}.csv".format(chan))
