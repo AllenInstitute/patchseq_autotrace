@@ -6,16 +6,46 @@ import numpy as np
 import pandas as pd
 from tifffile import imwrite, imread
 from functools import partial
-import allensdk.internal.core.lims_utilities as lu
 import glob
 import dask
 import dask.array as da
+
+
+def _connect(user, host, database,
+             password, port):
+    import pg8000
+
+    conn = pg8000.connect(user=user, host=host, database=database,
+                          password=password, port=port)
+    return conn, conn.cursor()
+
+
+def _select(cursor, query):
+    cursor.execute(query)
+    columns = [d[0].decode("utf-8") if isinstance(d[0], bytes) else d[0] for d
+               in cursor.description]
+    return [dict(zip(columns, c)) for c in cursor.fetchall()]
+
+
+def query(query, user, host, database,
+          password, port):
+    conn, cursor = _connect(user, host, database, password, port)
+
+    # Guard against non-ascii characters in query
+    query = ''.join([i if ord(i) < 128 else ' ' for i in query])
+
+    try:
+        results = _select(cursor, query)
+    finally:
+        cursor.close()
+        conn.close()
+    return results
 
 def default_query_engine():
     """Get Postgres query engine with environmental variable parameters"""
 
     return partial(
-        lu.query,
+        query,
         host=os.getenv("LIMS_HOST"),
         port=5432,
         database=os.getenv("LIMS_DBNAME"),
