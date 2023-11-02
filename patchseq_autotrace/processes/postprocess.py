@@ -5,6 +5,7 @@ import cv2
 from skimage.morphology import remove_small_objects, skeletonize_3d
 from scipy import ndimage as ndi
 import shutil
+import pandas as pd
 from patchseq_autotrace.utils import dir_to_mip, get_tifs, extract_non_zero_coords
 from patchseq_autotrace.statics import INTENSITY_THRESHOLDS
 
@@ -48,14 +49,10 @@ def postprocess(specimen_dir, segmentation_dir, model_name, threshold=0.3, size_
 
         # find x,y,z and intensity values for non zero coordinates
         csv_ofile = os.path.join(specimen_dir, "Segmentation_{}.csv".format(chan))
-        segmentation_df = extract_non_zero_coords(tif_directory=channel_dir, thresh=thresh)
-        segmentation_df.to_csv(csv_ofile, index=False)
+        cgx, cgy, cgz = extract_non_zero_coords(tif_directory=channel_dir, thresh=thresh, max_list_size=500000,
+                                                output_csv=csv_ofile)
 
-        if (chan == "ch1") and (not segmentation_df.empty):
-            cgx = sum(segmentation_df['x'] * segmentation_df['Intensity']) / segmentation_df['Intensity'].sum()
-            cgy = sum(segmentation_df['y'] * segmentation_df['Intensity']) / segmentation_df['Intensity'].sum()
-            cgz = sum(segmentation_df['z'] * segmentation_df['Intensity']) / segmentation_df['Intensity'].sum()
-
+        if (chan == "ch1") and (not all([c == 0 for c in [cgx, cgy, cgz]])):
             centroid_ofile = os.path.join(specimen_dir, "Segmentation_soma_centroid.csv")
             np.savetxt(centroid_ofile, np.swapaxes(np.array([[cgx], [cgy], [cgz]]), 0, 1), fmt='%.1f', delimiter=',',
                        header='x,y,z')
@@ -142,7 +139,12 @@ def postprocess(specimen_dir, segmentation_dir, model_name, threshold=0.3, size_
 
     # save skeleton as csv file
     skeleton_coords_csv = os.path.join(specimen_dir, "Segmentation_skeleton_labeled.csv")
-    skeleton_df = extract_non_zero_coords(tif_directory=savedir, thresh=None)
+    _, _, _ = extract_non_zero_coords(tif_directory=savedir,
+                                      output_csv=skeleton_coords_csv,
+                                      max_list_size=500000,
+                                      thresh=None)
+    # this ~should~ be small enough to read into memory
+    skeleton_df = pd.read_csv(skeleton_coords_csv)
 
     skeleton_df['node_type'] = [None] * len(skeleton_df)
     z_slices_with_segmentation = set(skeleton_df['z'].values)
@@ -155,7 +157,6 @@ def postprocess(specimen_dir, segmentation_dir, model_name, threshold=0.3, size_
         if z_idx in z_slices_with_segmentation:
             pth = os.path.join(mask_dir, fn)
             msk_img = cv2.imread(pth, cv2.IMREAD_UNCHANGED)
-
             nodes_at_this_slice = skeleton_df[skeleton_df['z'] == z_idx]
             xs = nodes_at_this_slice['x'].values
             ys = nodes_at_this_slice['y'].values

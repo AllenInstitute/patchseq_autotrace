@@ -9,6 +9,7 @@ from functools import partial
 import glob
 import dask
 import dask.array as da
+import csv
 
 
 def _connect(user, host, database,
@@ -40,6 +41,7 @@ def query(query, user, host, database,
         cursor.close()
         conn.close()
     return results
+
 
 def default_query_engine():
     """Get Postgres query engine with environmental variable parameters"""
@@ -181,7 +183,7 @@ def dir_to_mip(indir, max_num_file_to_load, axis=0, ofile=None):
     return mip
 
 
-def extract_non_zero_coords(tif_directory, thresh=None):
+def extract_non_zero_coords(tif_directory, output_csv, max_list_size=500000, thresh=None):
     """
     given a director of tif images, return a dataframe of all non-zero coordinates found in the image stack
 
@@ -192,24 +194,44 @@ def extract_non_zero_coords(tif_directory, thresh=None):
 
     these_tif_files = get_tifs(tif_directory)
     z_idx = -1
-    records = []
-    for fn in tqdm(these_tif_files):
-        z_idx += 1
+    records = [['x', 'y', 'z', 'Intensity']]
+
+    iterative_item_counter = 0
+    all_intensities = 0
+    centroid_x, centroid_y, centroid_z = 0, 0, 0
+    for z_idx, fn in enumerate(tqdm(these_tif_files)):
         pth = os.path.join(tif_directory, fn)
         img = cv2.imread(pth, cv2.IMREAD_UNCHANGED)
         if thresh:
             img[img < thresh] = 0
         ys, xs = np.nonzero(img)
-        intensity = img[ys, xs]
-        for x, y, i in zip(xs, ys, intensity):
-            res_dict = {
-                "x": x,
-                "y": y,
-                "z": z_idx,
-                "Intensity": i
-            }
-            records.append(res_dict)
+        intensities = img[ys, xs]
+        num_coords = len(xs)
 
-    non_zero_coords_df = pd.DataFrame.from_records(records)
+        all_intensities += intensities.sum()
+        centroid_x += np.sum(xs * intensities)
+        centroid_y += np.sum(ys * intensities)
+        centroid_z += z_idx * intensities.sum()
 
-    return non_zero_coords_df
+        z_vals = np.full(num_coords, z_idx)
+        new_records = np.column_stack((xs, ys, z_vals, intensities)).tolist()
+        records.extend(new_records)
+
+        iterative_item_counter += num_coords
+        if iterative_item_counter > max_list_size:
+            with open(output_csv, "a", newline='') as file:
+                writer = csv.writer(file)
+                writer.writerows(records)
+                records = []
+
+    # write remaining records
+    if records:
+        with open(output_csv, "a", newline='') as file:
+            writer = csv.writer(file)
+            writer.writerows(records)
+
+    centroid_x = centroid_x / all_intensities
+    centroid_y = centroid_y / all_intensities
+    centroid_z = centroid_z / all_intensities
+
+    return centroid_x, centroid_y, centroid_z
