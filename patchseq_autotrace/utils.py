@@ -136,14 +136,14 @@ def get_tifs(input_tif_dir):
     return natural_sort(tif_files)
 
 
-def dir_to_mip(indir, max_num_file_to_load, axis=0, ofile=None):
+def dir_to_mip(indir, max_num_file_to_load, mip_axis=0, ofile=None):
     """
     Calculates the max intensity projection of all tiff images in a directory
     Using a memory efficient dask array
 
     :param indir: str, The directory containing the tiff images.
     :param max_num_file_to_load: int, The number of slices (images) to load into memory at once.
-    :param axis: int, The axis along which to perform max intensity projection. 0 is into slice to get x,y MIP
+    :param mip_axis: int, The axis along which to perform max intensity projection. 0 is into slice to get x,y MIP
     :param ofile: str, Path to an output tif file, optional, default=None
     :return:mip: np.array, max intensity projection
 
@@ -171,9 +171,9 @@ def dir_to_mip(indir, max_num_file_to_load, axis=0, ofile=None):
     stacked_images = stacked_images.rechunk((max_num_file_to_load, *first_img_shape))
 
     # Compute the max intensity projection along the specified axis
-    mip = stacked_images.max(axis=axis).compute()
+    mip = stacked_images.max(axis=mip_axis).compute()
 
-    if axis in [1, 2]:
+    if mip_axis in [1, 2]:
         # For consistency with other autotrace infrastructure
         mip = mip.T
 
