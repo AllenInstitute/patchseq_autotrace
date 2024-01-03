@@ -4,16 +4,50 @@ import cv2
 from tqdm import tqdm
 import numpy as np
 import pandas as pd
-from tifffile import imwrite
+from tifffile import imwrite, imread
 from functools import partial
-import allensdk.internal.core.lims_utilities as lu
+import glob
+import dask
+import dask.array as da
+import csv
+
+
+def _connect(user, host, database,
+             password, port):
+    import pg8000
+
+    conn = pg8000.connect(user=user, host=host, database=database,
+                          password=password, port=port)
+    return conn, conn.cursor()
+
+
+def _select(cursor, query):
+    cursor.execute(query)
+    columns = [d[0].decode("utf-8") if isinstance(d[0], bytes) else d[0] for d
+               in cursor.description]
+    return [dict(zip(columns, c)) for c in cursor.fetchall()]
+
+
+def query(query, user, host, database,
+          password, port):
+    conn, cursor = _connect(user, host, database, password, port)
+
+    # Guard against non-ascii characters in query
+    query = ''.join([i if ord(i) < 128 else ' ' for i in query])
+
+    try:
+        results = _select(cursor, query)
+    finally:
+        cursor.close()
+        conn.close()
+    return results
 
 
 def default_query_engine():
     """Get Postgres query engine with environmental variable parameters"""
 
     return partial(
-        lu.query,
+        query,
         host=os.getenv("LIMS_HOST"),
         port=5432,
         database=os.getenv("LIMS_DBNAME"),
@@ -102,62 +136,54 @@ def get_tifs(input_tif_dir):
     return natural_sort(tif_files)
 
 
-def dir_to_mip(indir, ofile, max_num_file_to_load, mip_axis=2):
+def dir_to_mip(indir, max_num_file_to_load, mip_axis=0, ofile=None):
     """
-    Image stack directory to max intensity projection. Memory conscious. Will only load max_num_file_to_load at a time.
-    dimensions : axis =  {x:1, y:0, z:2}
+    Calculates the max intensity projection of all tiff images in a directory
+    Using a memory efficient dask array
 
-    in the case of yz or xz mips, we are 'building the mip as we go'. loading chunks along z, taking mip and saving.
-    in case of xy mip, we are chunking, but keeping track of mips and then taking a final mip of mips.
-
-    :param max_num_file_to_load: int, maximum number of tif files that will be loaded into memory at once
-    :param indir: str, directory with tiff images in natural order
-    :param ofile: str, output mip tif file
-    :param mip_axis: int, axis for max intensity projection
-    :return:
+    :param indir: str, The directory containing the tiff images.
+    :param max_num_file_to_load: int, The number of slices (images) to load into memory at once.
+    :param mip_axis: int, The axis along which to perform max intensity projection. 0 is into slice to get x,y MIP
+    :param ofile: str, Path to an output tif file, optional, default=None
+    :return:mip: np.array, max intensity projection
 
     """
+    tiff_files = sorted(glob.glob(os.path.join(indir, '*.tiff')))
 
-    indir_files = get_tifs(indir)
+    if not tiff_files:
+        tiff_files = sorted(glob.glob(os.path.join(indir, '*.tif')))
+        if not tiff_files:
+            raise ValueError(f"No tiff files found in directory: {indir}")
 
-    chunks = [indir_files[x:x + max_num_file_to_load] for x in range(0, len(indir_files), max_num_file_to_load)]
+    # Get the shape of the first image to use for subsequent images
+    first_img_shape = imread(tiff_files[0]).shape
 
-    img_0_pth = os.path.join(indir, indir_files[0])
-    img_0 = cv2.imread(img_0_pth, cv2.IMREAD_UNCHANGED)
-    if mip_axis == 0:
-        final_mip = np.zeros((img_0.shape[1], len(indir_files)), dtype=np.uint8)
-    elif mip_axis == 1:
-        final_mip = np.zeros((img_0.shape[0], len(indir_files)), dtype=np.uint8)
+    # Lazy function to load a single tiff file
+    def load_single_tiff(file):
+        return imread(file)
 
-    all_mips = []
-    z_slice_ct = 0
-    for sub_list in chunks:
-        curr_stack = []
-        for fn in sub_list:
-            pth = os.path.join(indir, fn)
-            img = cv2.imread(pth, cv2.IMREAD_UNCHANGED)
-            curr_stack.append(img)
-            z_slice_ct += 1
+    # Create a list of Dask delayed objects, each representing a lazy-loaded image
+    lazy_images = [da.from_delayed(dask.delayed(load_single_tiff)(f), shape=first_img_shape, dtype=np.uint8) for f in
+                   tiff_files]
 
-        curr_stack = np.dstack(curr_stack).astype(np.uint8)
-        curr_mip = np.max(curr_stack, axis=mip_axis)
+    # Stack these delayed images into a dask array with the specified chunk size (`max_num_file_to_load`).
+    stacked_images = da.stack(lazy_images, axis=0)
+    stacked_images = stacked_images.rechunk((max_num_file_to_load, *first_img_shape))
 
-        idx_0 = z_slice_ct - len(sub_list)
-        if mip_axis != 2:
-            final_mip[:, idx_0:z_slice_ct] = curr_mip
-        else:
-            all_mips.append(curr_mip)
+    # Compute the max intensity projection along the specified axis
+    mip = stacked_images.max(axis=mip_axis).compute()
 
-    # thing to consider: if datasets significantly grow in size,  len(all_mips) maybe > max_num_files_to_load
-    if mip_axis == 2:
-        all_mips = np.dstack(all_mips).astype(np.uint8)
-        final_mip = np.max(all_mips, axis=mip_axis)
+    if mip_axis in [1, 2]:
+        # For consistency with other autotrace infrastructure
+        mip = mip.T
 
-    final_mip = final_mip.astype(np.uint8)
-    imwrite(ofile, final_mip)
+    if ofile is not None:
+        imwrite(ofile, mip)
+
+    return mip
 
 
-def extract_non_zero_coords(tif_directory, thresh=None):
+def extract_non_zero_coords(tif_directory, output_csv, max_list_size=500000, thresh=None):
     """
     given a director of tif images, return a dataframe of all non-zero coordinates found in the image stack
 
@@ -168,24 +194,44 @@ def extract_non_zero_coords(tif_directory, thresh=None):
 
     these_tif_files = get_tifs(tif_directory)
     z_idx = -1
-    records = []
-    for fn in tqdm(these_tif_files):
-        z_idx += 1
+    records = [['x', 'y', 'z', 'Intensity']]
+
+    iterative_item_counter = 0
+    all_intensities = 0
+    centroid_x, centroid_y, centroid_z = 0, 0, 0
+    for z_idx, fn in enumerate(tqdm(these_tif_files)):
         pth = os.path.join(tif_directory, fn)
         img = cv2.imread(pth, cv2.IMREAD_UNCHANGED)
         if thresh:
             img[img < thresh] = 0
         ys, xs = np.nonzero(img)
-        intensity = img[ys, xs]
-        for x, y, i in zip(xs, ys, intensity):
-            res_dict = {
-                "x": x,
-                "y": y,
-                "z": z_idx,
-                "Intensity": i
-            }
-            records.append(res_dict)
+        intensities = img[ys, xs]
+        num_coords = len(xs)
 
-    non_zero_coords_df = pd.DataFrame.from_records(records)
+        all_intensities += intensities.sum()
+        centroid_x += np.sum(xs * intensities)
+        centroid_y += np.sum(ys * intensities)
+        centroid_z += z_idx * intensities.sum()
 
-    return non_zero_coords_df
+        z_vals = np.full(num_coords, z_idx)
+        new_records = np.column_stack((xs, ys, z_vals, intensities)).tolist()
+        records.extend(new_records)
+
+        iterative_item_counter += num_coords
+        if iterative_item_counter > max_list_size:
+            with open(output_csv, "a", newline='') as file:
+                writer = csv.writer(file)
+                writer.writerows(records)
+                records = []
+
+    # write remaining records
+    if records:
+        with open(output_csv, "a", newline='') as file:
+            writer = csv.writer(file)
+            writer.writerows(records)
+
+    centroid_x = centroid_x / all_intensities
+    centroid_y = centroid_y / all_intensities
+    centroid_z = centroid_z / all_intensities
+
+    return centroid_x, centroid_y, centroid_z
