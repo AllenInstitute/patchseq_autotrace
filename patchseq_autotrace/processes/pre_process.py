@@ -88,16 +88,20 @@ def _crop_and_invert(infile, ofile, x1, x2, y1, y2):
     cv2.imwrite(ofile, cropped_img_inverted)
 
 
-def crop_and_invert_directory_multiproc(input_tif_dir, x1, x2, y1, y2, chunk_size):
+def crop_and_invert_directory_multiproc(input_tif_dir, x1, x2, y1, y2, chunk_size, parallel):
     parallel_func_inputs = []
     tif_files = get_tifs(input_tif_dir)
     for fn in tif_files:
         infile = os.path.join(input_tif_dir, fn)
         ofile = infile
-        parallel_func_inputs.append((infile, ofile, x1, x2, y1, y2))
-
-    p = Pool(processes=chunk_size)
-    p.starmap(_crop_and_invert, parallel_func_inputs)
+        if parallel:
+            parallel_func_inputs.append((infile, ofile, x1, x2, y1, y2))
+        else:
+            _crop_and_invert(infile, ofile, x1, x2, y1, y2)
+            
+    if parallel:
+        p = Pool(processes=chunk_size)
+        p.starmap(_crop_and_invert, parallel_func_inputs)
 
 
 def solve_for_bounding_box(input_image_dir, chunk_size):

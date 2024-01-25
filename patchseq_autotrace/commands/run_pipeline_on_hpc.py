@@ -31,8 +31,11 @@ class IO_Schema(ags.ArgSchema):
 
     autotrace_tracking_database = ags.fields.OutputFile(default="/allen/programs/celltypes/workgroups/mousecelltypes"
                                                            "/AutotraceReconstruction/Autotrace_DataBase.db")
-
+    use_multiprocessing = ags.fields.Bool(default=True, description="whether to use multiprocessing or not")
+    
+    
 def main(args, **kwargs):
+    use_multiprocessing = args['use_multiprocessing']
     specimen_file = args['specimen_file']
     specimen_id_col = args['specimen_id_col']
     model_column = args['model_column']
@@ -98,7 +101,8 @@ def main(args, **kwargs):
                                                                       parent_job_id=parent_job_id,
                                                                       start_condition=start_condition,
                                                                       gpu_device=gpu_device,
-                                                                      database_file=autotrace_tracking_database)
+                                                                      database_file=autotrace_tracking_database,
+                                                                      use_multiprocessing=use_multiprocessing)
 
             # Now cells from the subsequent batches will have to wait for an opening in a previous batch
             curr_parent_job_id_list.append(specimens_last_job_id)

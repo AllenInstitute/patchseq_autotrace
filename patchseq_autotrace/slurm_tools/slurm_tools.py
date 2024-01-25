@@ -31,7 +31,7 @@ def remove_already_autotrace_specimens(input_df, specimen_id_col, autotrace_root
 
 
 def submit_specimen_pipeline_to_slurm(specimen_id, autotrace_directory, chunk_size, model_name, virtualenvironment,
-                                      parent_job_id, start_condition, gpu_device, database_file):
+                                      parent_job_id, start_condition, gpu_device, database_file, use_multiprocessing):
     """
     Will create a slurm workflow DAG for each step in the autotrace pipeline for the given specimen and submit the
     jobs to the slurm scheduler. Each step of the pipeline requires that the previous step be completed without fail
@@ -105,7 +105,7 @@ def submit_specimen_pipeline_to_slurm(specimen_id, autotrace_directory, chunk_si
         "--partition": "celltypes",
         "--output": os.path.join(job_dir, f"{specimen_id}_pre_proc.log")
     }
-    pre_proc_command = f"auto-pre-proc --specimen_dir {specimen_dir} --chunk_size {chunk_size} --sqlite_runs_table_id {specimen_runs_row_id} --autotrace_tracking_database {database_file}"
+    pre_proc_command = f"auto-pre-proc --specimen_dir {specimen_dir} --chunk_size {chunk_size} --sqlite_runs_table_id {specimen_runs_row_id} --autotrace_tracking_database {database_file} --use_multiprocessing {use_multiprocessing}"
     pre_proc_command_list = ["source ~/.bashrc", f"conda activate {virtualenvironment}", pre_proc_command]
 
     # Segmentation

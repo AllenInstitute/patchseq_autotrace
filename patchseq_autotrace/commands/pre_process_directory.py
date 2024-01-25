@@ -17,6 +17,7 @@ class IO_Schema(ags.ArgSchema):
                     "patchseq_autotrace.database_tools prior to running this script")
     generate_raw_mip = ags.fields.Bool(description="bool indicating whether to generate max intensity projection for raw images",
                                    default=False)
+    use_multiprocessing = ags.fields.Bool(description='whether to use multiprocessing or not')
 
 
 def main(args, **kwargs):
@@ -25,6 +26,7 @@ def main(args, **kwargs):
     sqlite_runs_table_id = args['sqlite_runs_table_id']
     autotrace_tracking_database = args['autotrace_tracking_database']
     generate_raw_mip = args['generate_raw_mip']
+    use_multiprocessing = args['use_multiprocessing']
 
     status_update(database_path=autotrace_tracking_database,
                   runs_unique_id=sqlite_runs_table_id,
@@ -36,14 +38,14 @@ def main(args, **kwargs):
     # # Ensure image directory exists
     input_image_dir = os.path.join(specimen_dir, "Single_Tif_Images")
     if not os.path.exists(input_image_dir):
-        get_image_stack_for_specimen(specimen_id, input_image_dir)
+        get_image_stack_for_specimen(specimen_id, input_image_dir, parallel=use_multiprocessing)
 
     elif len(os.listdir(input_image_dir)) == 0:
-        get_image_stack_for_specimen(specimen_id, input_image_dir)
+        get_image_stack_for_specimen(specimen_id, input_image_dir, parallel=use_multiprocessing)
 
     # Find crop dimensions and crop the images
     x1, y1, x2, y2 = crop_dimensions(input_image_dir)
-    crop_and_invert_directory_multiproc(input_image_dir, x1, x2, y1, y2, chunk_size)
+    crop_and_invert_directory_multiproc(input_image_dir, x1, x2, y1, y2, chunk_size, parallel=use_multiprocessing)
 
     # Create bounding box file
     bb_file = os.path.join(specimen_dir, 'bbox_{}.json'.format(specimen_id))
