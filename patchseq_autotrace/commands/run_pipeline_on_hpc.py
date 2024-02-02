@@ -29,13 +29,14 @@ class IO_Schema(ags.ArgSchema):
 
     max_num_specimens_at_once = ags.fields.Int(description="maximum number of specimens to be running at once on hpc")
 
+    dynamic_resource_requests = ags.fields.Bool(description='whether to change HPC resource requests depending on estimated image stack size')
+
     autotrace_tracking_database = ags.fields.OutputFile(default="/allen/programs/celltypes/workgroups/mousecelltypes"
                                                            "/AutotraceReconstruction/Autotrace_DataBase.db")
-    use_multiprocessing = ags.fields.Bool(default=True, description="whether to use multiprocessing or not")
     
     
 def main(args, **kwargs):
-    use_multiprocessing = args['use_multiprocessing']
+    dynamic_resource_requests = args['dynamic_resource_requests']
     specimen_file = args['specimen_file']
     specimen_id_col = args['specimen_id_col']
     model_column = args['model_column']
@@ -102,7 +103,7 @@ def main(args, **kwargs):
                                                                       start_condition=start_condition,
                                                                       gpu_device=gpu_device,
                                                                       database_file=autotrace_tracking_database,
-                                                                      use_multiprocessing=use_multiprocessing)
+                                                                      dynamic_resource_requests=dynamic_resource_requests)
 
             # Now cells from the subsequent batches will have to wait for an opening in a previous batch
             curr_parent_job_id_list.append(specimens_last_job_id)
