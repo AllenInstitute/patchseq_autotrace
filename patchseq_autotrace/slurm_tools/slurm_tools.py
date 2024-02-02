@@ -58,13 +58,13 @@ def submit_specimen_pipeline_to_slurm(specimen_id, autotrace_directory, chunk_si
     segmentation_time = "72:00:00"
     segmentation_memory = "62gb"
     pre_proc_time = "10:00:00"
-    stack_thresh_gb = 100
+    stack_thresh_gb = 75 # as of 2/2/2024, the average size of a human cell that failed is 75gb
     if dynamic_resource_requests:
         estimated_stack_size_gb = estimate_stack_size(specimen_id)
         if  estimated_stack_size_gb > stack_thresh_gb:
             use_multiprocessing = False
             segmentation_memory = "96gb"
-            segmentation_time = "84:00:00"
+            segmentation_time = "90:00:00"
             pre_proc_time = "24:00:00"
     
     specimen_dir = os.path.abspath(os.path.join(autotrace_directory, str(specimen_id)))
