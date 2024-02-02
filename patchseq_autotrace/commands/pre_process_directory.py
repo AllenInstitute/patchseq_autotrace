@@ -1,4 +1,5 @@
 import os
+import shutil
 import argschema as ags
 import json
 from patchseq_autotrace.processes.pre_process import (crop_dimensions, crop_and_invert_directory_multiproc,
@@ -67,6 +68,10 @@ def main(args, **kwargs):
         os.mkdir(chunk_dir)
     convert_stack_to_3dchunks(chunk_size, input_image_dir, chunk_dir)
 
+    # remove single tif directory since it is no longer needed at this point
+    shutil.rmtree(input_image_dir)
+    
+    
     status_update(database_path=autotrace_tracking_database,
                   runs_unique_id=sqlite_runs_table_id,
                   process_name='preprocessing',
