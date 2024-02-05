@@ -96,7 +96,13 @@ def postprocess(specimen_dir, segmentation_dir, model_name, threshold=0.3, size_
     idx = np.append(np.arange(0, cell_stack_size[0], int(np.ceil(cell_stack_size[0] / num_parts))),
                     cell_stack_size[0] + 1)
     print('idx:', idx)
-    for i in range(num_parts):
+    num_its = num_parts
+    # there should be one more item in idx than num_parts, but some
+    # recent human cells from SCH project end up having num_parts elements
+    # in idx and that causes an out of bounds index error.
+    if len(idx) == num_parts:
+        num_its = num_parts-1
+    for i in range(num_its):
         idx1 = idx[i]
         idx2 = idx[i + 1]
         filesublist = filelist[idx1:idx2]
@@ -136,7 +142,11 @@ def postprocess(specimen_dir, segmentation_dir, model_name, threshold=0.3, size_
         print('saving stack')
         for k in range(stack.shape[0]):
             tif.imsave(os.path.join(savedir, '%03d.tif' % (k + idx1)), stack[k, :, :])
-
+    print("The last sublist of files:")
+    print(filesublist)
+    msg = f"It's possible not all tif files were processed. The last tif file {filesublist[-1]} ! = the last tif file processed {filelist[-1]}"
+    assert filesublist[-1]==filelist[-1], msg
+    
     # save skeleton as csv file
     skeleton_coords_csv = os.path.join(specimen_dir, "Segmentation_skeleton_labeled.csv")
     _, _, _ = extract_non_zero_coords(tif_directory=savedir,
