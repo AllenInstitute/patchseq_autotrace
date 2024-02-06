@@ -91,18 +91,12 @@ def postprocess(specimen_dir, segmentation_dir, model_name, threshold=0.3, size_
     # if cell stack memory>max_stack_size (15GB for RAM=128GB), need to split
     num_parts = int(np.ceil(cell_stack_memory / max_stack_size))
     print('num_parts:', num_parts)
-
+    
     # split filelist
     idx = np.append(np.arange(0, cell_stack_size[0], int(np.ceil(cell_stack_size[0] / num_parts))),
                     cell_stack_size[0] + 1)
     print('idx:', idx)
-    num_its = num_parts
-    # there should be one more item in idx than num_parts, but some
-    # recent human cells from SCH project end up having num_parts elements
-    # in idx and that causes an out of bounds index error.
-    if len(idx) == num_parts:
-        num_its = num_parts-1
-    for i in range(num_its):
+    for i in range(len(idx)-1):
         idx1 = idx[i]
         idx2 = idx[i + 1]
         filesublist = filelist[idx1:idx2]
