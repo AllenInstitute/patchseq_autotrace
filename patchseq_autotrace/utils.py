@@ -78,7 +78,7 @@ def query_for_image_paths(specimen_id, query_engine=None):
     JOIN images im ON im.slide_id=sl.id 
     AND im.image_type_id = 1     
     JOIN sub_images si ON si.image_id=im.id     
-    WHERE iser.specimen_id = {int(specimen_id)} 
+    WHERE iser.specimen_id = {int(specimen_id)} AND (sl.storage_directory || im.jp2) IS NOT NULL
     order by input_jp2 desc;
     """
 
