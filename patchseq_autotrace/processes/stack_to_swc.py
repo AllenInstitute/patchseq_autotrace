@@ -21,14 +21,17 @@ class UnionFind:
         self.rank = [0] * n
     
     def find(self, x):
+        # find parent of given node with recursion
         if self.parent[x] != x:
             self.parent[x] = self.find(self.parent[x])
         return self.parent[x]
     
     def union(self, x, y):
+        # join two components
         root_x = self.find(x)
         root_y = self.find(y)
         if root_x != root_y:
+            # join trees, optimally considering tree depth
             if self.rank[root_x] < self.rank[root_y]:
                 self.parent[root_x] = root_y
             elif self.rank[root_x] > self.rank[root_y]:
@@ -38,6 +41,7 @@ class UnionFind:
                 self.rank[root_x] += 1
 
 def find_neighbors(df, node):
+    "get x y z values for neighboring nodes"
     x, y, z = node[['x', 'y', 'z']]
     neighbors = df[
         (df['x'].between(x - 1, x + 1)) &
@@ -49,6 +53,17 @@ def find_neighbors(df, node):
 
 
 def identify_components(df):
+    """
+    Given the skeleton dataframe which was generated in postprocessing step, will
+    find all the connected components using union find operation. 
+
+    Args:
+        df (dataframe): skeleton dataframe with x,y,z, node_type columns
+
+    Returns:
+        list: list of dataframes where each dataframes represents a single connected 
+        component form the input dataframe
+    """
     
     # Create a mapping of node coordinates to their indices in the DataFrame
     coord_to_index = {(row['x'], row['y'], row['z']): index for index, row in df.iterrows()}
@@ -84,6 +99,7 @@ def identify_components(df):
     return segments
 
 def find_root_node(nodes, soma_node):
+    "find the leaf node that is closest to the soma, and return it and how far it is from the soma"
     node_coordinates = list(nodes.keys())  # Extract node coordinates from the dictionary
     distances = cdist([soma_node], node_coordinates).flatten()
     # the first item in metadata is node type, the second is neighbors list
@@ -97,6 +113,18 @@ def find_root_node(nodes, soma_node):
     return closest_leaf_node, distances[node_coordinates.index(closest_leaf_node)]
 
 def create_adjacency_lists(df):
+    """
+    Given a dataframe representing a single connected component, return a dictionary
+    that informs each nodes neighbors and each nodes type.
+
+    Args:
+        df (dataframe): dataframe representing one connected component
+
+    Returns:
+        dict: keys are node coordinate tuples, values are a tuple with two items, the first being
+        a dictionary that contains the key-node node type. the second is a set representing
+        the key-node neighboring nodes (as x,y,z coordinates)
+    """
     nodes = {}
     for _, row in df.iterrows():
         current_node = (row['x'], row['y'], row['z'])
@@ -113,6 +141,18 @@ def create_adjacency_lists(df):
     return nodes
 
 def create_morph_node_list(root_node, nodes, root_parent, current_node_count):
+    """
+    Construct parent/child relationships, and also connect to the soma if close enough. 
+
+    Args:
+        root_node (tuple): (x,y,z) of the root node of nodes (node that is closest to soma)
+        nodes (dict): returned dict of create_adjacency_lists
+        root_parent (int): node id of the root nodes parent, either -1 or 1
+        current_node_count (int): integer informaing what the current not count is
+
+    Returns:
+        list: list of nodes formatted for neuron_morphology Morphology construction
+    """
 
     node_ct=current_node_count
     this_node_list = []
@@ -155,7 +195,20 @@ def create_morph_node_list(root_node, nodes, root_parent, current_node_count):
 
 # Function to process each segment in parallel
 def process_segment(segment_df, soma_node, connection_threshold, current_node_count, soma_node_id):
+    """
+    given a dataframe that represents the x,y,z and node type of a single connected component
+    in our segmentation, turn this into a list of DAG nodes.
+    
+    Args:
+        segment_df (df): single connected component dataframe
+        soma_node (tuple): coordinates of the soma node (x,y,z)
+        connection_threshold (float): connection threhsold for connecting a segment to the soma
+        current_node_count (int): current node count
+        soma_node_id (int): node id of the soma node
 
+    Returns:
+        list: list of nodes (dictionaries)
+    """
     nodes = create_adjacency_lists(segment_df)
     root_node, dist_to_soma = find_root_node(nodes,soma_node)
     root_parent = -1
@@ -437,9 +490,7 @@ def skeleton_to_swc(specimen_dir, model_and_version, ):
         full_dir_name = os.path.join(specimen_dir, dir_name)
         if os.path.exists(full_dir_name):
             print(full_dir_name)
-            # shutil.rmtree(full_dir_name)
-
-
+            shutil.rmtree(full_dir_name)
 
 
 # def assign_parent_child_relation(start_node, start_nodes_parent, parent_dict, neighbors_dict):
