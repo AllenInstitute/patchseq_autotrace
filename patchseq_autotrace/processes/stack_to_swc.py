@@ -418,7 +418,6 @@ def skeleton_to_swc(specimen_dir, model_and_version, ):
     """
 
     sp_id = os.path.basename(os.path.abspath(specimen_dir))
-    skeleton_dir = os.path.join(specimen_dir, 'Skeleton')
     skeleton_labels_file = os.path.join(specimen_dir, 'Segmentation_skeleton_labeled.csv')
 
     ch1_mip_pth = os.path.join(specimen_dir,"MAX_Segmentation_ch1.tif")

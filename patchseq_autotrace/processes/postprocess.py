@@ -175,6 +175,7 @@ def postprocess(specimen_dir, segmentation_dir, model_name, threshold=0.3, size_
 
     directories_to_remove = ["Chunks_of_32", "Chunks_of_32_Left", "Chunks_of_32_Right",
                              "Segmentation", "Segmentation_Left", "Segmentation_Right",
+                             "Skeleton", #because of new stack_to_swc, this can be deleted now, we only need the csv
                              "Single_Tif_Images", "Single_Tif_Images_Left", "Single_Tif_Images_Right"]
 
     for dir_name in directories_to_remove:
