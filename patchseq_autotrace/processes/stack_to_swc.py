@@ -10,134 +10,213 @@ import cv2
 import shutil
 from scipy.spatial import distance
 from scipy.ndimage import label, morphology, generate_binary_structure
+from tqdm import tqdm
+from scipy.spatial.distance import cdist
 from patchseq_autotrace.utils import get_63x_soma_coords, get_tifs, natural_sort
 from patchseq_autotrace import __version__ as autotrace_code_version
 
-def assign_parent_child_relation(start_node, start_nodes_parent, parent_dict, neighbors_dict):
-    """
-    Starting at a given leaf node of a connected component, walk over the structure using breadth
-    first to assign parent-child node relationships. This function will fill out the parent_dict
-    variable for a given connected component
+class UnionFind:
+    def __init__(self, n):
+        self.parent = [i for i in range(n)]
+        self.rank = [0] * n
+    
+    def find(self, x):
+        # find parent of given node with recursion
+        if self.parent[x] != x:
+            self.parent[x] = self.find(self.parent[x])
+        return self.parent[x]
+    
+    def union(self, x, y):
+        # join two components
+        root_x = self.find(x)
+        root_y = self.find(y)
+        if root_x != root_y:
+            # join trees, optimally considering tree depth
+            if self.rank[root_x] < self.rank[root_y]:
+                self.parent[root_x] = root_y
+            elif self.rank[root_x] > self.rank[root_y]:
+                self.parent[root_y] = root_x
+            else:
+                self.parent[root_y] = root_x
+                self.rank[root_x] += 1
 
-    :param start_node: tuple, (x,y,z) coordinate to start at in walking connected components
-    :param start_nodes_parent: int, node id for the parent node. Either soma or -1
-    :param parent_dict: dict, {tuple:tuple} representing child_node:parent_node
-    :param neighbors_dict: dict, {tuple:list} represents the neighboring coordinates for each coordinate
-    :return: None, populates parent dict
+def find_neighbors(df, node):
+    "get x y z values for neighboring nodes"
+    x, y, z = node[['x', 'y', 'z']]
+    neighbors = df[
+        (df['x'].between(x - 1, x + 1)) &
+        (df['y'].between(y - 1, y + 1)) &
+        (df['z'].between(z - 1, z + 1)) &
+        (~(df['x'] == x) | ~(df['y'] == y) | ~(df['z'] == z))
+    ][['x', 'y', 'z']]
+    return neighbors.values
+
+
+def identify_components(df):
     """
-    # this function uses BFS to assign parent child relationships in the neighbors dict
-    parent_dict[start_node] = start_nodes_parent
-    queue = deque([start_node])
-    while len(queue) > 0:
+    Given the skeleton dataframe which was generated in postprocessing step, will
+    find all the connected components using union find operation. 
+
+    Args:
+        df (dataframe): skeleton dataframe with x,y,z, node_type columns
+
+    Returns:
+        list: list of dataframes where each dataframes represents a single connected 
+        component form the input dataframe
+    """
+    
+    # Create a mapping of node coordinates to their indices in the DataFrame
+    coord_to_index = {(row['x'], row['y'], row['z']): index for index, row in df.iterrows()}
+    
+    # Initialize Union-Find data structure
+    n = len(df)
+    uf = UnionFind(n)
+    
+    # Union neighboring nodes
+    print("Unioning Nodes")
+    for index, row in tqdm(df.iterrows()):
+        # current_node = (row['x'], row['y'], row['z'])
+        neighbors = find_neighbors(df, row)
+        for neighbor_coords in neighbors:
+            neighbor_coords = tuple(neighbor_coords)
+            if neighbor_coords in coord_to_index:
+                neighbor_index = coord_to_index[neighbor_coords]
+                uf.union(index, neighbor_index)
+    
+    print("Grouping Indices")
+    # Group indices by their root parent
+    component_groups = {}
+    for index, _ in tqdm(df.iterrows()):
+        root = uf.find(index)
+        component_groups.setdefault(root, []).append(index)
+    
+    # Extract segments from groups
+    print('extracting segments')
+    segments = []
+    for indices in tqdm(component_groups.values()):
+        segments.append(df.loc[indices])
+    
+    return segments
+
+def find_root_node(nodes, soma_node):
+    "find the leaf node that is closest to the soma, and return it and how far it is from the soma"
+    node_coordinates = list(nodes.keys())  # Extract node coordinates from the dictionary
+    distances = cdist([soma_node], node_coordinates).flatten()
+    # the first item in metadata is node type, the second is neighbors list
+    leaf_nodes = {node for node, metadata in nodes.items() if len(metadata[1]) == 1}
+    if leaf_nodes == set():
+        # this is likely a noise/artifact and is a full loop, will choose first node as leaf 
+        closest_leaf_node = list(nodes.keys())[0]
+    else:  
+        closest_leaf_node = min(leaf_nodes, key=lambda node: distances[node_coordinates.index(node)])
+        
+    return closest_leaf_node, distances[node_coordinates.index(closest_leaf_node)]
+
+def create_adjacency_lists(df):
+    """
+    Given a dataframe representing a single connected component, return a dictionary
+    that informs each nodes neighbors and each nodes type.
+
+    Args:
+        df (dataframe): dataframe representing one connected component
+
+    Returns:
+        dict: keys are node coordinate tuples, values are a tuple with two items, the first being
+        a dictionary that contains the key-node node type. the second is a set representing
+        the key-node neighboring nodes (as x,y,z coordinates)
+    """
+    nodes = {}
+    for _, row in df.iterrows():
+        current_node = (row['x'], row['y'], row['z'])
+        neighbor_nodes = {(neighbor['x'], neighbor['y'], neighbor['z']) for _, neighbor in df[
+            (df['x'].between(row['x'] - 1, row['x'] + 1)) &
+            (df['y'].between(row['y'] - 1, row['y'] + 1)) &
+            (df['z'].between(row['z'] - 1, row['z'] + 1)) &
+            (~(df['x'] == row['x']) | ~(df['y'] == row['y']) | ~(df['z'] == row['z']))
+        ].iterrows()}
+        node_data = {
+            'type': row['node_type']  # Add node_type attribute
+        }
+        nodes[current_node] = (node_data, neighbor_nodes)  # Storing both node data and neighbors
+    return nodes
+
+def create_morph_node_list(root_node, nodes, root_parent, current_node_count):
+    """
+    Construct parent/child relationships, and also connect to the soma if close enough. 
+
+    Args:
+        root_node (tuple): (x,y,z) of the root node of nodes (node that is closest to soma)
+        nodes (dict): returned dict of create_adjacency_lists
+        root_parent (int): node id of the root nodes parent, either -1 or 1
+        current_node_count (int): integer informaing what the current not count is
+
+    Returns:
+        list: list of nodes formatted for neuron_morphology Morphology construction
+    """
+
+    node_ct=current_node_count
+    this_node_list = []
+    visited = set()
+    node_id_dict = {}
+    queue = deque([root_node])
+    while len(queue)>0:
         current_node = queue.popleft()
-        my_connections = neighbors_dict[current_node]
-        for node in my_connections:
-            if node not in parent_dict:
-                # print('Assigning node {} to be the child of {}'.format(node_dict[node],node_dict[current_node]))
-                parent_dict[node] = current_node
-                queue.append(node)
-            # else:
-            # p = 'Initial start node' if parent_dict[node] == start_nodes_parent else str([parent_dict[node]])
-            # print('{} already has a parent {}'.format(node_dict[node], p))
+        node_metadata = nodes[current_node]
+        node_neighbors = node_metadata[1]
+
+        if visited == set():
+            parent_id = root_parent 
+            
+        else:
+            # find its parent
+            upstream_neighbor = [n for n in node_neighbors if n in visited]
+            parent_id = node_id_dict[upstream_neighbor[0]]
+            
+        node_ct+=1
+        node_id_dict[current_node] = node_ct
+        this_node = {
+            "id":node_ct,
+            "type":node_metadata[0]['type'],
+            "x":current_node[0],
+            "y":current_node[1],
+            "z":current_node[2],
+            "radius":1,
+            'parent':parent_id
+        }
+        this_node_list.append(this_node)
+        visited.add(current_node)
+
+        for neighbor in node_neighbors:
+            if neighbor not in visited and neighbor not in queue:
+                queue.appendleft(neighbor)
+
+    return this_node_list
 
 
-def consolidate_conn_components(connected_components_to_merge):
+# Function to process each segment in parallel
+def process_segment(segment_df, soma_node, connection_threshold, current_node_count, soma_node_id):
     """
-    This function will merge connected components that were interrupted by chunking of the entire image stack. In
-    visual above, connected component 34 and 60 should merge into one connected component. This code will handle all
-    merge scenarios (across various chunk indices, many components merge to one and vice versa). See visual below:
+    given a dataframe that represents the x,y,z and node type of a single connected component
+    in our segmentation, turn this into a list of DAG nodes.
+    
+    Args:
+        segment_df (df): single connected component dataframe
+        soma_node (tuple): coordinates of the soma node (x,y,z)
+        connection_threshold (float): connection threhsold for connecting a segment to the soma
+        current_node_count (int): current node count
+        soma_node_id (int): node id of the soma node
 
-    / and \ represent neuron segment
-
-                /     (connected component 22)
-              /  \
-    -------------------- (chunk index)
-           /       \
-         /          \       (connected component 38 and 66)
-
-    :param connected_components_to_merge: defaultdict(set), keys represent connected component labels and values are
-    the set of connected component labels that should merge into the key. E.g. {22:{38,66}, 38:{22}, 66:{22}} where
-    integers represent the connected component label.
-
-    :return: dict, keys represent connected components and values are the set of connected component a key will be
-    reassigned to. An empty set indicates that a given connected component is not changing label.
-     Continuing with example given above, return would be: {22:{}, 38:{22}, 66:{22}}
+    Returns:
+        list: list of nodes (dictionaries)
     """
-    pre_qc = set()
-    all_nodes = {}
-    for k, v in connected_components_to_merge.items():
-        pre_qc.add(k)
-        all_nodes[k] = set()
-        for vv in v:
-            pre_qc.add(vv)
-            all_nodes[vv] = set()
-
-    nodes_to_remove = set()
-    for start_node in connected_components_to_merge.keys():
-        rename_count = 0
-        # print('')
-        # print('Start Node {} assignment = {}'.format(start_node, all_nodes[start_node]))
-        if all_nodes[start_node] == set():
-            # print('Starting at {}'.format(start_node))
-            queue = deque([start_node])
-            start_value = start_node
-            back_track_log = set()
-            while len(queue) > 0:
-
-                current_node = queue.popleft()
-
-                if all_nodes[current_node] == set():
-                    # print('assigning current node {} to {}'.format(current_node, start_value))
-                    back_track_log.add(current_node)
-                    all_nodes[current_node].add(start_value)
-                    if current_node in connected_components_to_merge.keys():
-                        # print('appending children to the queue')
-                        [queue.append(x) for x in connected_components_to_merge[current_node]]
-                else:
-                    rename_count += 1
-                    if rename_count < 2:
-                        nodes_to_remove.add(start_node)
-                        # print('Backtracking when i got to node {}'.format(current_node))
-                        start_value = next(iter(all_nodes[current_node]))
-                        # print('Updating the value to be {}'.format(start_value))
-                        for node in back_track_log:
-                            # print('Going back to update node {} to {}'.format(node, start_value))
-                            all_nodes[node].clear()
-                            all_nodes[node].add(start_value)
-
-                    else:
-                        # need to remove all nodes that have this already assigned value
-                        # and updated them to the start_value assigned on line 36
-                        value_to_remove = next(iter(all_nodes[current_node]))
-                        # print('Found {} already labeled node at {}. Its label = {}'.format(rename_count, current_node,
-                        #                                                                    value_to_remove))
-                        nodes_to_push_rename = [k for k, v in all_nodes.items() if value_to_remove in v]
-
-                        for node in nodes_to_push_rename:
-                            all_nodes[node].clear()
-                            all_nodes[node].add(start_value)
-                            if node in connected_components_to_merge.keys():  # cant remove it from the keys if its a leaf
-                                nodes_to_remove.add(start_node)
-
-        # else:
-        #     print('was going to analyze {} but its already assigned to {}'.format(start_node, all_nodes[start_node]))
-
-    my_dict = defaultdict(set)
-    for k, v in all_nodes.items():
-        if k != next(iter(v)):
-            my_dict[next(iter(v))].add(k)
-
-    post_qc = set()
-    for k, v in my_dict.items():
-        post_qc.add(k)
-        for vv in v:
-            post_qc.add(vv)
-
-    for i in pre_qc:
-        if i not in post_qc:
-            print('Node {} is in the input dict but not output'.format(i))
-
-    return my_dict
+    nodes = create_adjacency_lists(segment_df)
+    root_node, dist_to_soma = find_root_node(nodes,soma_node)
+    root_parent = -1
+    if dist_to_soma < connection_threshold:
+        root_parent = soma_node_id
+        
+    node_list = create_morph_node_list(root_node, nodes, root_parent, current_node_count)
+    return node_list
 
 
 def get_soma_xyz(max_intensity_proj_ch1_pth, yz_mip_pth, specimen_id, min_pixel_size_of_soma=500):
@@ -151,11 +230,12 @@ def get_soma_xyz(max_intensity_proj_ch1_pth, yz_mip_pth, specimen_id, min_pixel_
     """
     no_soma = False
     if not os.path.exists(max_intensity_proj_ch1_pth):
+        print("max_intensity_proj_ch1_pth not found:\n{}".format(max_intensity_proj_ch1_pth))
         no_soma = True
         centroid = (0, 0, 0)
         connection_threshold = 0
-
-        return centroid, connection_threshold, no_soma
+        mean_radius = 0
+        return centroid, connection_threshold, mean_radius, no_soma
 
     ch1_mip = tif.imread(max_intensity_proj_ch1_pth)
 
@@ -327,311 +407,52 @@ def get_soma_xyz(max_intensity_proj_ch1_pth, yz_mip_pth, specimen_id, min_pixel_
 
     return centroid, connection_threshold, mean_radius, no_soma
 
+def skeleton_to_swc(specimen_dir, model_and_version, ):
+    """
+    An optimized verison of archived_skeleton_to_swc. This code is showing much faster skeleton 
+    to swc speeds with equivalent output swc files. 
 
-def skeleton_to_swc(specimen_dir, model_and_version, max_stack_size=7000000000):
+    Args:
+        specimen_dir (str): path to specimen directory
+        model_and_version (str): segmentation model and version
+    """
+
     sp_id = os.path.basename(os.path.abspath(specimen_dir))
-    print('Starting To Process {}'.format(sp_id))
-
-    skeleton_dir = os.path.join(specimen_dir, 'Skeleton')
-
     skeleton_labels_file = os.path.join(specimen_dir, 'Segmentation_skeleton_labeled.csv')
 
-    # Calculate how many files to load as not to exceed memory limit per iteration
-    filelist = natural_sort(get_tifs(skeleton_dir))
-    filename = os.path.join(skeleton_dir, filelist[0])
-    img = tif.imread(filename)
-    cell_stack_size = len(filelist), img.shape[0], img.shape[1]
-    cell_stack_memory = cell_stack_size[0] * cell_stack_size[1] * cell_stack_size[2]
-    print('cell_stack_size (z,y,x):', cell_stack_size, cell_stack_memory)
-    # if cell stack memory>max_stack_size need to split
-    num_parts = int(np.ceil(cell_stack_memory / max_stack_size))
-    print('num_parts:', num_parts)
-
-    idx = np.append(np.arange(0, cell_stack_size[0], int(np.ceil(cell_stack_size[0] / num_parts))),
-                    cell_stack_size[0] + 1)
-    shared_slices = idx[1:-1]
-    both_sides_of_slices = np.append(shared_slices, shared_slices - 1)
-
-    # Initialize variables before begining chunk looping
-    connected_components_on_border = {}
-    for j in both_sides_of_slices:
-        connected_components_on_border[j] = []
-    previous_cc_count = 0
-    slice_count = 0
-    full_neighbors_dict = {}
-    node_component_label_dict = {}
-    cc_dict = {}
-
-    for i in range(num_parts):
-        print('At Part {}'.format(i))
-        idx1 = idx[i]
-        idx2 = idx[i + 1]
-        filesublist = filelist[idx1:idx2]
-        # print('part ', i, idx1, idx2, len(filesublist))
-
-        # load stack and run connected components
-        cv_stack = []
-        for f in filesublist:
-            filename = os.path.join(skeleton_dir, f)
-            img = cv2.imread(filename, cv2.IMREAD_UNCHANGED)
-            cv_stack.append(img)
-        three_d_array = np.stack(cv_stack)
-        struct = generate_binary_structure(3, 3)
-        labels_out, _ = label(three_d_array, structure=struct)
-
-        current_number_of_components = np.max(labels_out)
-        # print('There are {} CCs in this stack of images'.format(current_number_of_components))
-
-        # Create range for connected components across all chunks of image stack
-        if previous_cc_count == 0:
-            cc_range = range(1, current_number_of_components + 1)
-        else:
-            cc_range = range(previous_cc_count + 1, previous_cc_count + 1 + current_number_of_components)
-
-        for cc in cc_range:
-            cc_dict[cc] = {'X': [], 'Y': [], 'Z': []}
-
-        # Load each image slice by slice so that we can get coordinates to the connected components
-        for single_image in labels_out:
-            single_image_unique_labels = np.unique(single_image)  # return indices and ignore 0
-            for unique_label in single_image_unique_labels:
-                if unique_label != 0:
-                    indices = np.where(single_image == unique_label)
-                    conn_comp_apriori_num = unique_label + previous_cc_count
-                    [cc_dict[conn_comp_apriori_num]['Y'].append(coord) for coord in indices[0]]
-                    [cc_dict[conn_comp_apriori_num]['X'].append(coord) for coord in indices[1]]
-                    [cc_dict[conn_comp_apriori_num]['Z'].append(x) for x in [slice_count] * len(indices[1])]
-
-                    if slice_count in both_sides_of_slices:
-                        connected_components_on_border[slice_count].append(conn_comp_apriori_num)
-
-            slice_count += 1
-
-        ################################################################################################################
-        # To turn a connected component into a SWC file, we need to keep track of coordinate neighbors (e.g. this
-        # voxel (1,1,1) may have neighbors at (1,0,0) and (2,1,1), or it may be a leaf node and only have one neighbor
-        # Here we are using neighbors_dict to keep track of those relationships
-        ################################################################################################################
-
-        for conn_comp in cc_range:
-            coord_values = cc_dict[conn_comp]
-            component_coordinates = np.array([coord_values['X'], coord_values['Y'], coord_values['Z']]).T
-
-            # Making a node dictionary for this con comp so we can lookup in the 26 node check step
-            node_dict = {}
-            count = 0
-            for c in component_coordinates:
-                count += 1
-                node_dict[tuple(c)] = count
-                node_component_label_dict[tuple(c)] = conn_comp
-
-            # 26 nodes to check in defining neighbors dict
-            movement_vectors = ([p for p in itertools.product([0, 1, -1], repeat=3)])
-            neighbors_dict = {}
-            for node in component_coordinates:
-
-                node_neighbors = []
-                for vect in movement_vectors:
-                    node_to_check = tuple(list(map(add, tuple(node), vect)))
-                    if node_to_check in node_dict.keys():
-                        node_neighbors.append(node_to_check)
-
-                # remove myself from my node neightbors list
-                node_neighbors = set([x for x in node_neighbors if x != tuple(node)])
-                neighbors_dict[tuple(node)] = node_neighbors
-                full_neighbors_dict[conn_comp] = neighbors_dict
-
-        previous_cc_count += current_number_of_components
-
-    ################################################################################################################
-    # All image chunks have been loaded and full neighbors dict is constructed. Now, since we chunked our image, we need
-    # to stitch connected components across the chunk indices and consolidate connected component labels. Here we use
-    # left and right to denote deeper (left, greater z value) and more superficial (chunks, lower z values) of our image
-    # stack.
-    ################################################################################################################
-    print('Merging Conn Components across chunk indexes')
-
-    # Initializing Nodes on either side of slice boundary
-    nodes_to_left_of_boundary = {}
-    for x in shared_slices - 1:
-        nodes_to_left_of_boundary[x] = defaultdict(list)
-
-    nodes_to_right_of_boundary = {}
-    for x in shared_slices:
-        nodes_to_right_of_boundary[x] = defaultdict(list)
-
-    # assigning nodes only with z value on edge to left or right side
-    for key, val in connected_components_on_border.items():
-        for con_comp_label in val:
-            coord_values = full_neighbors_dict[con_comp_label].keys()
-            for coord in coord_values:
-                z = coord[-1]
-                if z == key:
-                    if z in shared_slices - 1:
-                        nodes_to_left_of_boundary[key][con_comp_label].append(tuple(coord))
-                    else:
-                        nodes_to_right_of_boundary[key][(tuple(coord))] = con_comp_label
-
-    ################################################################################################################
-    # Check the 26 boxes surrounding each node that lives on the left side
-    # Update full neighbors dictionary
-    # Create dictionary of conn components that need to merge across slize index
-    ################################################################################################################
-
-    movement_vectors = ([p for p in itertools.product([0, 1, -1], repeat=3)])
-    full_merge_dict = defaultdict(set)
-    merging_ccs = defaultdict(set)
-
-    for slice_locations in shared_slices:
-        # print(slice_locations)
-        left_side = slice_locations - 1
-        right_side = slice_locations
-
-        # Iterate through Left Conn Components that have nodes on the boundary
-        # Find nodes on the other side and their corresponding CC label indicating a need to merge
-
-        for cc_label in nodes_to_left_of_boundary[left_side].keys():
-            # print(cc_label)
-
-            cc_coords_to_check = nodes_to_left_of_boundary[left_side][cc_label]
-            for left_node in cc_coords_to_check:
-                for vect in movement_vectors:
-                    node_to_check_on_other_side = tuple(list(map(add, tuple(left_node), vect)))
-                    if node_to_check_on_other_side in nodes_to_right_of_boundary[right_side]:
-                        right_cc = nodes_to_right_of_boundary[right_side][node_to_check_on_other_side]
-
-                        # Update Neighbors Dictionary
-                        # print('IM ADDING {} to {} Neighbor Dict'.format(node_to_check_on_other_side,left_node))
-                        full_neighbors_dict[cc_label][left_node].add(node_to_check_on_other_side)
-                        full_neighbors_dict[right_cc][node_to_check_on_other_side].add(left_node)
-
-                        merging_ccs[cc_label].add(right_cc)
-                        # print(merging_ccs)
-
-    full_merge_dict = consolidate_conn_components(merging_ccs)
-
-    ################################################################################################################
-    # Consolidate Connected Component Labels Across Chunk Slices. E.g. in our image connected components that are
-    # actually the same component will have different numerical values if they were impacted by chunking. This
-    # will consolidate them
-    ################################################################################################################
-
-    # merging these values in full neighbors dict
-    for keeping_cc, merging_cc in full_merge_dict.items():
-        for merge_cc in merging_cc:
-            # pdate full neighbors dict
-            full_neighbors_dict[keeping_cc].update(full_neighbors_dict[merge_cc])
-
-            del full_neighbors_dict[merge_cc]
-
-    ################################################################################################################
-    # Before building an swc file we need to find the soma location. We can use our ch_1 of segmentation to find
-    # the soma centroid if data is not available in lims.
-    ################################################################################################################
-    ch1_mip_pth = os.path.join(specimen_dir, "MAX_Segmentation_ch1.tif")
+    ch1_mip_pth = os.path.join(specimen_dir,"MAX_Segmentation_ch1.tif")
     ch1_yz_mip_pth = os.path.join(specimen_dir, "MAX_yz_Segmentation_ch1.tif")
-
-    centroid, connection_threshold, mean_radius, no_soma = get_soma_xyz(ch1_mip_pth, ch1_yz_mip_pth, sp_id)
-
-    ################################################################################################################
-    # For each connected component floating around our image stack, we will give it directionality. We will assume
-    # the leaf node closest to the soma will be the root of every independent connected component.
-    ################################################################################################################
-
-    parent_dict = {}
-    parent_dict[centroid] = -1
-
-    for conn_comp in full_neighbors_dict.keys():
-        # print('at conn_comp {}'.format(conn_comp))
-        neighbors_dict = full_neighbors_dict[conn_comp]
-        if len(full_neighbors_dict[conn_comp]) > 2:
-            leaf_nodes = [x for x in neighbors_dict.keys() if len(neighbors_dict[x]) == 1]
-
-            # There is no leaf node to start at (loop present) so we will make it by removing a connection in this
-            # component that is closest to soma.
-            if leaf_nodes == []:
-                # find node closest to soma
-                dist_dict = {}
-                for coord in full_neighbors_dict[conn_comp].keys():
-                    dist_to_soma = distance.euclidean(centroid, coord)
-                    dist_dict[coord] = dist_to_soma
-                start_node = min(dist_dict, key=dist_dict.get)
-                while len(full_neighbors_dict[conn_comp][start_node]) > 1:
-                    removed = full_neighbors_dict[conn_comp][start_node].pop()
-                    full_neighbors_dict[conn_comp][removed].discard(start_node)
-
-                # Check how far it is from soma centroid
-                dist = distance.euclidean(centroid, start_node)
-
-                if dist < connection_threshold:
-                    start_parent = centroid
-                else:
-                    start_parent = 0
-
-                assign_parent_child_relation(start_node, start_parent, parent_dict, neighbors_dict)
-
-            # At least one leaf node exists
-            else:
-                dist_dict = {}
-                for coord in leaf_nodes:
-                    dist_to_soma = distance.euclidean(centroid, coord)
-                    dist_dict[coord] = dist_to_soma
-                start_node = min(dist_dict, key=dist_dict.get)
-
-                # Check how far it is from soma cloud
-                dist = distance.euclidean(centroid, start_node)
-
-                if dist < connection_threshold:
-                    print('assigning soma centroid as the start node')
-                    start_parent = centroid
-                else:
-                    start_parent = 0
-
-                assign_parent_child_relation(start_node, start_parent, parent_dict, neighbors_dict)
-
-    # In case with fake centroid remove centroid from parent dict and centroid
-    if no_soma == True:
-        parent_dict.pop(centroid)
-        for k, v in parent_dict.items():
-            if v == centroid:
-                parent_dict[k] = -1
-
-    # number each node for swc format
-    ct = 0
-    big_node_dict = {}
-    for j in parent_dict.keys():
-        ct += 1
-        big_node_dict[tuple(j)] = ct
-
-    # Load node type labels
-    skeleton_labeled = pd.read_csv(skeleton_labels_file)
-    skeleton_coord_labels_dict = {}
-    for n in skeleton_labeled.index:
-        skeleton_coord_labels_dict[
-            (skeleton_labeled.loc[n]['x'], skeleton_labeled.loc[n]['y'], skeleton_labeled.loc[n]['z'])] = \
-            skeleton_labeled.loc[n]['node_type']
-
-    # Make swc list for swc file writing
-    swc_list = []
-    for k, v in parent_dict.items():
-        # id,type,x,y,z,r,pid
-        if v == 0:
-            parent = -1
-            node_type = skeleton_coord_labels_dict[k]
-            radius = 1
-        elif v == -1:
-            parent = -1
-            node_type = 1
-            radius = mean_radius
-        else:
-            parent = big_node_dict[v]
-            node_type = skeleton_coord_labels_dict[k]
-            radius = 1
-
-        swc_line = [big_node_dict[k]] + [node_type] + list(k) + [radius] + [parent]
-
-        swc_list.append(swc_line)
-
+    soma_coordinates, connection_threshold, mean_radius, no_soma  = get_soma_xyz(max_intensity_proj_ch1_pth=ch1_mip_pth, 
+                                                                     yz_mip_pth=ch1_yz_mip_pth, 
+                                                                     specimen_id=sp_id, 
+                                                                     min_pixel_size_of_soma=500)
+    skel_df = pd.read_csv(skeleton_labels_file)
+    for ii in ['x','y','z']:
+        skel_df[ii] = skel_df[ii].astype(int)
+        
+    print("skel_df.shape: ",skel_df.shape)
+    auto_soma_node = {
+    "id":1,
+    "type":1,
+    "x":soma_coordinates[0],
+    "y":soma_coordinates[1],
+    "z":soma_coordinates[2],
+    "radius":mean_radius,
+    "parent":-1
+    }
+    segments = identify_components(skel_df)
+    current_node_count = 1
+    master_node_list = [auto_soma_node]
+    for seg_df in segments:
+        this_seg_node_list = process_segment(seg_df, 
+                                             soma_coordinates, 
+                                             connection_threshold, 
+                                             current_node_count,
+                                             soma_node_id=1)
+        master_node_list = master_node_list + this_seg_node_list 
+        current_node_count+=len(this_seg_node_list)
+        
+        
     # Organize Outputs
     swc_outdir = os.path.join(specimen_dir, "SWC")
     raw_swc_outdir = os.path.join(swc_outdir, "Raw")
@@ -641,15 +462,13 @@ def skeleton_to_swc(specimen_dir, model_and_version, max_stack_size=7000000000):
         if not os.path.exists(chk_dir):
             os.mkdir(chk_dir)
 
-    # Write swc file
     swc_path = os.path.join(raw_swc_outdir, '{}_{}_{}_1.0.swc'.format(sp_id, model_and_version, autotrace_code_version))
     with open(swc_path, 'w') as f:
         f.write('# id,type,x,y,z,r,pid')
         f.write('\n')
-        for sublist in swc_list:
-            for val in sublist:
-                f.write(str(val))
-                f.write(' ')
+        for node in master_node_list:
+            l = " ".join([ str(node[k]) for k in ['id','type','x','y','z','radius','parent']])
+            f.write(l)
             f.write('\n')
     print('finished writing swc for specimen {}'.format(sp_id))
 
@@ -671,3 +490,483 @@ def skeleton_to_swc(specimen_dir, model_and_version, max_stack_size=7000000000):
         if os.path.exists(full_dir_name):
             print(full_dir_name)
             shutil.rmtree(full_dir_name)
+
+
+# def assign_parent_child_relation(start_node, start_nodes_parent, parent_dict, neighbors_dict):
+#     """
+#     Starting at a given leaf node of a connected component, walk over the structure using breadth
+#     first to assign parent-child node relationships. This function will fill out the parent_dict
+#     variable for a given connected component
+
+#     :param start_node: tuple, (x,y,z) coordinate to start at in walking connected components
+#     :param start_nodes_parent: int, node id for the parent node. Either soma or -1
+#     :param parent_dict: dict, {tuple:tuple} representing child_node:parent_node
+#     :param neighbors_dict: dict, {tuple:list} represents the neighboring coordinates for each coordinate
+#     :return: None, populates parent dict
+#     """
+#     # this function uses BFS to assign parent child relationships in the neighbors dict
+#     parent_dict[start_node] = start_nodes_parent
+#     queue = deque([start_node])
+#     while len(queue) > 0:
+#         current_node = queue.popleft()
+#         my_connections = neighbors_dict[current_node]
+#         for node in my_connections:
+#             if node not in parent_dict:
+#                 # print('Assigning node {} to be the child of {}'.format(node_dict[node],node_dict[current_node]))
+#                 parent_dict[node] = current_node
+#                 queue.append(node)
+#             # else:
+#             # p = 'Initial start node' if parent_dict[node] == start_nodes_parent else str([parent_dict[node]])
+#             # print('{} already has a parent {}'.format(node_dict[node], p))
+
+
+# def consolidate_conn_components(connected_components_to_merge):
+#     """
+#     This function will merge connected components that were interrupted by chunking of the entire image stack. In
+#     visual above, connected component 34 and 60 should merge into one connected component. This code will handle all
+#     merge scenarios (across various chunk indices, many components merge to one and vice versa). See visual below:
+
+#     / and \ represent neuron segment
+
+#                 /     (connected component 22)
+#               /  \
+#     -------------------- (chunk index)
+#            /       \
+#          /          \       (connected component 38 and 66)
+
+#     :param connected_components_to_merge: defaultdict(set), keys represent connected component labels and values are
+#     the set of connected component labels that should merge into the key. E.g. {22:{38,66}, 38:{22}, 66:{22}} where
+#     integers represent the connected component label.
+
+#     :return: dict, keys represent connected components and values are the set of connected component a key will be
+#     reassigned to. An empty set indicates that a given connected component is not changing label.
+#      Continuing with example given above, return would be: {22:{}, 38:{22}, 66:{22}}
+#     """
+#     pre_qc = set()
+#     all_nodes = {}
+#     for k, v in connected_components_to_merge.items():
+#         pre_qc.add(k)
+#         all_nodes[k] = set()
+#         for vv in v:
+#             pre_qc.add(vv)
+#             all_nodes[vv] = set()
+
+#     nodes_to_remove = set()
+#     for start_node in connected_components_to_merge.keys():
+#         rename_count = 0
+#         # print('')
+#         # print('Start Node {} assignment = {}'.format(start_node, all_nodes[start_node]))
+#         if all_nodes[start_node] == set():
+#             # print('Starting at {}'.format(start_node))
+#             queue = deque([start_node])
+#             start_value = start_node
+#             back_track_log = set()
+#             while len(queue) > 0:
+
+#                 current_node = queue.popleft()
+
+#                 if all_nodes[current_node] == set():
+#                     # print('assigning current node {} to {}'.format(current_node, start_value))
+#                     back_track_log.add(current_node)
+#                     all_nodes[current_node].add(start_value)
+#                     if current_node in connected_components_to_merge.keys():
+#                         # print('appending children to the queue')
+#                         [queue.append(x) for x in connected_components_to_merge[current_node]]
+#                 else:
+#                     rename_count += 1
+#                     if rename_count < 2:
+#                         nodes_to_remove.add(start_node)
+#                         # print('Backtracking when i got to node {}'.format(current_node))
+#                         start_value = next(iter(all_nodes[current_node]))
+#                         # print('Updating the value to be {}'.format(start_value))
+#                         for node in back_track_log:
+#                             # print('Going back to update node {} to {}'.format(node, start_value))
+#                             all_nodes[node].clear()
+#                             all_nodes[node].add(start_value)
+
+#                     else:
+#                         # need to remove all nodes that have this already assigned value
+#                         # and updated them to the start_value assigned on line 36
+#                         value_to_remove = next(iter(all_nodes[current_node]))
+#                         # print('Found {} already labeled node at {}. Its label = {}'.format(rename_count, current_node,
+#                         #                                                                    value_to_remove))
+#                         nodes_to_push_rename = [k for k, v in all_nodes.items() if value_to_remove in v]
+
+#                         for node in nodes_to_push_rename:
+#                             all_nodes[node].clear()
+#                             all_nodes[node].add(start_value)
+#                             if node in connected_components_to_merge.keys():  # cant remove it from the keys if its a leaf
+#                                 nodes_to_remove.add(start_node)
+
+#         # else:
+#         #     print('was going to analyze {} but its already assigned to {}'.format(start_node, all_nodes[start_node]))
+
+#     my_dict = defaultdict(set)
+#     for k, v in all_nodes.items():
+#         if k != next(iter(v)):
+#             my_dict[next(iter(v))].add(k)
+
+#     post_qc = set()
+#     for k, v in my_dict.items():
+#         post_qc.add(k)
+#         for vv in v:
+#             post_qc.add(vv)
+
+#     for i in pre_qc:
+#         if i not in post_qc:
+#             print('Node {} is in the input dict but not output'.format(i))
+
+#     return my_dict
+
+
+
+# def archived_skeleton_to_swc(specimen_dir, model_and_version, max_stack_size=7000000000):
+#     "original implementation of converting skeleton stack to swc"
+#     sp_id = os.path.basename(os.path.abspath(specimen_dir))
+#     print('Starting To Process {}'.format(sp_id))
+
+#     skeleton_dir = os.path.join(specimen_dir, 'Skeleton')
+
+#     skeleton_labels_file = os.path.join(specimen_dir, 'Segmentation_skeleton_labeled.csv')
+
+#     # Calculate how many files to load as not to exceed memory limit per iteration
+#     filelist = natural_sort(get_tifs(skeleton_dir))
+#     filename = os.path.join(skeleton_dir, filelist[0])
+#     img = tif.imread(filename)
+#     cell_stack_size = len(filelist), img.shape[0], img.shape[1]
+#     cell_stack_memory = cell_stack_size[0] * cell_stack_size[1] * cell_stack_size[2]
+#     print('cell_stack_size (z,y,x):', cell_stack_size, cell_stack_memory)
+#     # if cell stack memory>max_stack_size need to split
+#     num_parts = int(np.ceil(cell_stack_memory / max_stack_size))
+#     print('num_parts:', num_parts)
+
+#     idx = np.append(np.arange(0, cell_stack_size[0], int(np.ceil(cell_stack_size[0] / num_parts))),
+#                     cell_stack_size[0] + 1)
+#     shared_slices = idx[1:-1]
+#     both_sides_of_slices = np.append(shared_slices, shared_slices - 1)
+
+#     # Initialize variables before begining chunk looping
+#     connected_components_on_border = {}
+#     for j in both_sides_of_slices:
+#         connected_components_on_border[j] = []
+#     previous_cc_count = 0
+#     slice_count = 0
+#     full_neighbors_dict = {}
+#     node_component_label_dict = {}
+#     cc_dict = {}
+
+#     for i in range(len(idx)-1):
+#         print('At Part {}'.format(i))
+#         idx1 = idx[i]
+#         idx2 = idx[i + 1]
+#         filesublist = filelist[idx1:idx2]
+#         # print('part ', i, idx1, idx2, len(filesublist))
+
+#         # load stack and run connected components
+#         print("  Loading Stack")
+#         cv_stack = []
+#         for f in filesublist:
+#             filename = os.path.join(skeleton_dir, f)
+#             img = cv2.imread(filename, cv2.IMREAD_UNCHANGED)
+#             cv_stack.append(img)
+#         three_d_array = np.stack(cv_stack)
+#         del cv_stack
+#         del img
+#         struct = generate_binary_structure(3, 3)
+#         labels_out, _ = label(three_d_array, structure=struct)
+#         del three_d_array
+#         print("  Stack Loaded")
+        
+#         current_number_of_components = np.max(labels_out)
+#         print('There are {} CCs in this stack of images'.format(current_number_of_components))
+
+#         # Create range for connected components across all chunks of image stack
+#         if previous_cc_count == 0:
+#             cc_range = range(1, current_number_of_components + 1)
+#         else:
+#             cc_range = range(previous_cc_count + 1, previous_cc_count + 1 + current_number_of_components)
+
+#         for cc in cc_range:
+#             cc_dict[cc] = {'X': [], 'Y': [], 'Z': []}
+
+#         # Load each image slice by slice so that we can get coordinates to the connected components
+#         print("Iterating over connected component images")
+#         for single_image in labels_out:
+#             single_image_unique_labels = np.unique(single_image)  # return indices and ignore 0
+#             for unique_label in single_image_unique_labels:
+#                 if unique_label != 0:
+#                     indices = np.where(single_image == unique_label)
+#                     conn_comp_apriori_num = unique_label + previous_cc_count
+#                     [cc_dict[conn_comp_apriori_num]['Y'].append(coord) for coord in indices[0]]
+#                     [cc_dict[conn_comp_apriori_num]['X'].append(coord) for coord in indices[1]]
+#                     [cc_dict[conn_comp_apriori_num]['Z'].append(x) for x in [slice_count] * len(indices[1])]
+
+#                     if slice_count in both_sides_of_slices:
+#                         connected_components_on_border[slice_count].append(conn_comp_apriori_num)
+
+#             slice_count += 1
+
+#         del labels_out
+#         ################################################################################################################
+#         # To turn a connected component into a SWC file, we need to keep track of coordinate neighbors (e.g. this
+#         # voxel (1,1,1) may have neighbors at (1,0,0) and (2,1,1), or it may be a leaf node and only have one neighbor
+#         # Here we are using neighbors_dict to keep track of those relationships
+#         ################################################################################################################
+#         print("Iterating over each connected component")
+#         for conn_comp in cc_range:
+#             coord_values = cc_dict[conn_comp]
+#             component_coordinates = np.array([coord_values['X'], coord_values['Y'], coord_values['Z']]).T
+
+#             # Making a node dictionary for this con comp so we can lookup in the 26 node check step
+#             node_dict = {}
+#             count = 0
+#             for c in component_coordinates:
+#                 count += 1
+#                 node_dict[tuple(c)] = count
+#                 node_component_label_dict[tuple(c)] = conn_comp
+
+#             # 26 nodes to check in defining neighbors dict
+#             movement_vectors = ([p for p in itertools.product([0, 1, -1], repeat=3)])
+#             neighbors_dict = {}
+#             for node in component_coordinates:
+
+#                 node_neighbors = []
+#                 for vect in movement_vectors:
+#                     node_to_check = tuple(list(map(add, tuple(node), vect)))
+#                     if node_to_check in node_dict.keys():
+#                         node_neighbors.append(node_to_check)
+
+#                 # remove myself from my node neightbors list
+#                 node_neighbors = set([x for x in node_neighbors if x != tuple(node)])
+#                 neighbors_dict[tuple(node)] = node_neighbors
+#                 full_neighbors_dict[conn_comp] = neighbors_dict
+
+#         previous_cc_count += current_number_of_components
+#     ################################################################################################################
+#     # All image chunks have been loaded and full neighbors dict is constructed. Now, since we chunked our image, we need
+#     # to stitch connected components across the chunk indices and consolidate connected component labels. Here we use
+#     # left and right to denote deeper (left, greater z value) and more superficial (chunks, lower z values) of our image
+#     # stack.
+#     ################################################################################################################
+#     print('Merging Conn Components across chunk indexes')
+
+#     # Initializing Nodes on either side of slice boundary
+#     nodes_to_left_of_boundary = {}
+#     for x in shared_slices - 1:
+#         nodes_to_left_of_boundary[x] = defaultdict(list)
+
+#     nodes_to_right_of_boundary = {}
+#     for x in shared_slices:
+#         nodes_to_right_of_boundary[x] = defaultdict(list)
+
+#     # assigning nodes only with z value on edge to left or right side
+#     for key, val in connected_components_on_border.items():
+#         for con_comp_label in val:
+#             coord_values = full_neighbors_dict[con_comp_label].keys()
+#             for coord in coord_values:
+#                 z = coord[-1]
+#                 if z == key:
+#                     if z in shared_slices - 1:
+#                         nodes_to_left_of_boundary[key][con_comp_label].append(tuple(coord))
+#                     else:
+#                         nodes_to_right_of_boundary[key][(tuple(coord))] = con_comp_label
+
+#     ################################################################################################################
+#     # Check the 26 boxes surrounding each node that lives on the left side
+#     # Update full neighbors dictionary
+#     # Create dictionary of conn components that need to merge across slize index
+#     ################################################################################################################
+
+#     movement_vectors = ([p for p in itertools.product([0, 1, -1], repeat=3)])
+#     full_merge_dict = defaultdict(set)
+#     merging_ccs = defaultdict(set)
+
+#     for slice_locations in shared_slices:
+#         # print(slice_locations)
+#         left_side = slice_locations - 1
+#         right_side = slice_locations
+
+#         # Iterate through Left Conn Components that have nodes on the boundary
+#         # Find nodes on the other side and their corresponding CC label indicating a need to merge
+
+#         for cc_label in nodes_to_left_of_boundary[left_side].keys():
+#             # print(cc_label)
+
+#             cc_coords_to_check = nodes_to_left_of_boundary[left_side][cc_label]
+#             for left_node in cc_coords_to_check:
+#                 for vect in movement_vectors:
+#                     node_to_check_on_other_side = tuple(list(map(add, tuple(left_node), vect)))
+#                     if node_to_check_on_other_side in nodes_to_right_of_boundary[right_side]:
+#                         right_cc = nodes_to_right_of_boundary[right_side][node_to_check_on_other_side]
+
+#                         # Update Neighbors Dictionary
+#                         # print('IM ADDING {} to {} Neighbor Dict'.format(node_to_check_on_other_side,left_node))
+#                         full_neighbors_dict[cc_label][left_node].add(node_to_check_on_other_side)
+#                         full_neighbors_dict[right_cc][node_to_check_on_other_side].add(left_node)
+
+#                         merging_ccs[cc_label].add(right_cc)
+#                         # print(merging_ccs)
+
+#     full_merge_dict = consolidate_conn_components(merging_ccs)
+
+#     ################################################################################################################
+#     # Consolidate Connected Component Labels Across Chunk Slices. E.g. in our image connected components that are
+#     # actually the same component will have different numerical values if they were impacted by chunking. This
+#     # will consolidate them
+#     ################################################################################################################
+
+#     # merging these values in full neighbors dict
+#     for keeping_cc, merging_cc in full_merge_dict.items():
+#         for merge_cc in merging_cc:
+#             # pdate full neighbors dict
+#             full_neighbors_dict[keeping_cc].update(full_neighbors_dict[merge_cc])
+
+#             del full_neighbors_dict[merge_cc]
+
+#     ################################################################################################################
+#     # Before building an swc file we need to find the soma location. We can use our ch_1 of segmentation to find
+#     # the soma centroid if data is not available in lims.
+#     ################################################################################################################
+#     ch1_mip_pth = os.path.join(specimen_dir, "MAX_Segmentation_ch1.tif")
+#     ch1_yz_mip_pth = os.path.join(specimen_dir, "MAX_yz_Segmentation_ch1.tif")
+
+#     centroid, connection_threshold, mean_radius, no_soma = get_soma_xyz(ch1_mip_pth, ch1_yz_mip_pth, sp_id)
+
+#     ################################################################################################################
+#     # For each connected component floating around our image stack, we will give it directionality. We will assume
+#     # the leaf node closest to the soma will be the root of every independent connected component.
+#     ################################################################################################################
+
+#     parent_dict = {}
+#     parent_dict[centroid] = -1
+
+#     for conn_comp in full_neighbors_dict.keys():
+#         # print('at conn_comp {}'.format(conn_comp))
+#         neighbors_dict = full_neighbors_dict[conn_comp]
+#         if len(full_neighbors_dict[conn_comp]) > 2:
+#             leaf_nodes = [x for x in neighbors_dict.keys() if len(neighbors_dict[x]) == 1]
+
+#             # There is no leaf node to start at (loop present) so we will make it by removing a connection in this
+#             # component that is closest to soma.
+#             if leaf_nodes == []:
+#                 # find node closest to soma
+#                 dist_dict = {}
+#                 for coord in full_neighbors_dict[conn_comp].keys():
+#                     dist_to_soma = distance.euclidean(centroid, coord)
+#                     dist_dict[coord] = dist_to_soma
+#                 start_node = min(dist_dict, key=dist_dict.get)
+#                 while len(full_neighbors_dict[conn_comp][start_node]) > 1:
+#                     removed = full_neighbors_dict[conn_comp][start_node].pop()
+#                     full_neighbors_dict[conn_comp][removed].discard(start_node)
+
+#                 # Check how far it is from soma centroid
+#                 dist = distance.euclidean(centroid, start_node)
+
+#                 if dist < connection_threshold:
+#                     start_parent = centroid
+#                 else:
+#                     start_parent = 0
+
+#                 assign_parent_child_relation(start_node, start_parent, parent_dict, neighbors_dict)
+
+#             # At least one leaf node exists
+#             else:
+#                 dist_dict = {}
+#                 for coord in leaf_nodes:
+#                     dist_to_soma = distance.euclidean(centroid, coord)
+#                     dist_dict[coord] = dist_to_soma
+#                 start_node = min(dist_dict, key=dist_dict.get)
+
+#                 # Check how far it is from soma cloud
+#                 dist = distance.euclidean(centroid, start_node)
+
+#                 if dist < connection_threshold:
+#                     print('assigning soma centroid as the start node')
+#                     start_parent = centroid
+#                 else:
+#                     start_parent = 0
+
+#                 assign_parent_child_relation(start_node, start_parent, parent_dict, neighbors_dict)
+
+#     # In case with fake centroid remove centroid from parent dict and centroid
+#     if no_soma == True:
+#         parent_dict.pop(centroid)
+#         for k, v in parent_dict.items():
+#             if v == centroid:
+#                 parent_dict[k] = -1
+
+#     # number each node for swc format
+#     ct = 0
+#     big_node_dict = {}
+#     for j in parent_dict.keys():
+#         ct += 1
+#         big_node_dict[tuple(j)] = ct
+
+#     # Load node type labels
+#     skeleton_labeled = pd.read_csv(skeleton_labels_file)
+#     skeleton_coord_labels_dict = {}
+#     for n in skeleton_labeled.index:
+#         skeleton_coord_labels_dict[
+#             (skeleton_labeled.loc[n]['x'], skeleton_labeled.loc[n]['y'], skeleton_labeled.loc[n]['z'])] = \
+#             skeleton_labeled.loc[n]['node_type']
+
+#     # Make swc list for swc file writing
+#     swc_list = []
+#     for k, v in parent_dict.items():
+#         # id,type,x,y,z,r,pid
+#         if v == 0:
+#             parent = -1
+#             node_type = skeleton_coord_labels_dict[k]
+#             radius = 1
+#         elif v == -1:
+#             parent = -1
+#             node_type = 1
+#             radius = mean_radius
+#         else:
+#             parent = big_node_dict[v]
+#             node_type = skeleton_coord_labels_dict[k]
+#             radius = 1
+
+#         swc_line = [big_node_dict[k]] + [node_type] + list(k) + [radius] + [parent]
+
+#         swc_list.append(swc_line)
+
+#     # Organize Outputs
+#     swc_outdir = os.path.join(specimen_dir, "SWC")
+#     raw_swc_outdir = os.path.join(swc_outdir, "Raw")
+#     autotrace_byproducts = os.path.join(specimen_dir, 'Byproducts')
+
+#     for chk_dir in [swc_outdir, raw_swc_outdir, autotrace_byproducts]:
+#         if not os.path.exists(chk_dir):
+#             os.mkdir(chk_dir)
+
+#     # Write swc file
+#     swc_path = os.path.join(raw_swc_outdir, '{}_{}_{}_1.0.swc'.format(sp_id, model_and_version, autotrace_code_version))
+#     with open(swc_path, 'w') as f:
+#         f.write('# id,type,x,y,z,r,pid')
+#         f.write('\n')
+#         for sublist in swc_list:
+#             for val in sublist:
+#                 f.write(str(val))
+#                 f.write(' ')
+#             f.write('\n')
+#     print('finished writing swc for specimen {}'.format(sp_id))
+
+#     # Move Byproducts
+#     byproduct_files = [f for f in os.listdir(specimen_dir) if os.path.isfile(os.path.join(specimen_dir, f))]
+#     for bypro_file in byproduct_files:
+#         src = os.path.join(specimen_dir, bypro_file)
+#         dst = os.path.join(autotrace_byproducts, bypro_file)
+#         shutil.move(src, dst)
+
+#     # Clean Up
+#     directories_to_remove = ["Chunks_of_32", "Chunks_of_32_Left", "Chunks_of_32_Right",
+#                              "Segmentation", "Left_Segmentation", "Right_Segmentation",
+#                              "Skeleton", "Left_Skeleton", "Right_Skeleton",
+#                              "Single_Tif_Images", "Single_Tif_Images_Left", "Single_Tif_Images_Right"]
+#     print("Cleaning Up:")
+#     for dir_name in directories_to_remove:
+#         full_dir_name = os.path.join(specimen_dir, dir_name)
+#         if os.path.exists(full_dir_name):
+#             print(full_dir_name)
+#             shutil.rmtree(full_dir_name)

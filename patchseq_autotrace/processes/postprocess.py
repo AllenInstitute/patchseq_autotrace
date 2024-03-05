@@ -81,7 +81,6 @@ def postprocess(specimen_dir, segmentation_dir, model_name, threshold=0.3, size_
         mask[img2 > img3] = 2
         mask[img3 > img2] = 3
         tif.imsave(os.path.join(mask_dir, '%03d.tif' % i), mask)  # consecutive numbers
-
     # Step 5. Postprocess arbor segmentation
     filelist = get_tifs(ch5_dir)
 
@@ -91,12 +90,11 @@ def postprocess(specimen_dir, segmentation_dir, model_name, threshold=0.3, size_
     # if cell stack memory>max_stack_size (15GB for RAM=128GB), need to split
     num_parts = int(np.ceil(cell_stack_memory / max_stack_size))
     print('num_parts:', num_parts)
-
     # split filelist
     idx = np.append(np.arange(0, cell_stack_size[0], int(np.ceil(cell_stack_size[0] / num_parts))),
                     cell_stack_size[0] + 1)
     print('idx:', idx)
-    for i in range(num_parts):
+    for i in range(len(idx)-1):
         idx1 = idx[i]
         idx2 = idx[i + 1]
         filesublist = filelist[idx1:idx2]
@@ -136,9 +134,17 @@ def postprocess(specimen_dir, segmentation_dir, model_name, threshold=0.3, size_
         print('saving stack')
         for k in range(stack.shape[0]):
             tif.imsave(os.path.join(savedir, '%03d.tif' % (k + idx1)), stack[k, :, :])
-
+    print("The last sublist of files:")
+    print(filesublist)
+    msg = f"It's possible not all tif files were processed. The last tif file {filesublist[-1]} ! = the last tif file processed {filelist[-1]}"
+    assert filesublist[-1]==filelist[-1], msg
+    
     # save skeleton as csv file
     skeleton_coords_csv = os.path.join(specimen_dir, "Segmentation_skeleton_labeled.csv")
+    if os.path.exists(skeleton_coords_csv):
+        # since the memory conscious extract_non_zero_coords will append to a file, we need
+        # to start from scratch
+        os.remove(skeleton_coords_csv)
     _, _, _ = extract_non_zero_coords(tif_directory=savedir,
                                       output_csv=skeleton_coords_csv,
                                       max_list_size=500000,
@@ -158,8 +164,8 @@ def postprocess(specimen_dir, segmentation_dir, model_name, threshold=0.3, size_
             pth = os.path.join(mask_dir, fn)
             msk_img = cv2.imread(pth, cv2.IMREAD_UNCHANGED)
             nodes_at_this_slice = skeleton_df[skeleton_df['z'] == z_idx]
-            xs = nodes_at_this_slice['x'].values
-            ys = nodes_at_this_slice['y'].values
+            xs = nodes_at_this_slice['x'].astype(int).values
+            ys = nodes_at_this_slice['y'].astype(int).values
             axon_dendrite_label = msk_img[ys, xs]
             axon_dendrite_label[axon_dendrite_label == 0] = 5
 
@@ -169,6 +175,7 @@ def postprocess(specimen_dir, segmentation_dir, model_name, threshold=0.3, size_
 
     directories_to_remove = ["Chunks_of_32", "Chunks_of_32_Left", "Chunks_of_32_Right",
                              "Segmentation", "Segmentation_Left", "Segmentation_Right",
+                             "Skeleton", #because of new stack_to_swc, this can be deleted now, we only need the csv
                              "Single_Tif_Images", "Single_Tif_Images_Left", "Single_Tif_Images_Right"]
 
     for dir_name in directories_to_remove:

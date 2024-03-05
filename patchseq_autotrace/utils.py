@@ -55,6 +55,59 @@ def default_query_engine():
         password=os.getenv("LIMS_PASSWORD")
     )
 
+def get_jp2_slice_size_and_stack_length(specimen_id):
+    """
+    returns tuple (size in bytes of single jp2 file, number of jp2 files for this specimen)
+    
+    """
+    arg_dicts = query_for_image_paths(specimen_id)
+    single_file_size = os.path.getsize("/"+arg_dicts[0]['input_jp2'])
+    return single_file_size, len(arg_dicts)
+
+def query_for_image_paths(specimen_id, query_engine=None):
+    """Get an SWC file path for a specimen ID using the specified query engine"""
+    if query_engine is None:
+        query_engine = default_query_engine()
+
+    query = f"""
+    SELECT  si.x AS x_ind, si.y AS y_ind , sl.storage_directory || im.jp2  AS input_jp2     
+    FROM image_series iser     
+    JOIN image_series_slides iss 
+    ON iss.image_series_id=iser.id     
+    JOIN slides sl ON sl.id=iss.slide_id     
+    JOIN images im ON im.slide_id=sl.id 
+    AND im.image_type_id = 1     
+    JOIN sub_images si ON si.image_id=im.id     
+    WHERE iser.specimen_id = {int(specimen_id)} AND (sl.storage_directory || im.jp2) IS NOT NULL
+    order by input_jp2 desc;
+    """
+
+    results = query_engine(query)
+
+    return results
+
+def estimate_stack_size(specimen_id):
+    """
+    Given a specimen ID get the estimated tif stack size in gb
+
+    Args:
+        specimen_id (int): specimen ID
+
+    Returns:
+        est_tiff_size_gb: float, estimated stack size of the specimens tif stack
+    """
+        
+    # from GithubProjects/patchseq_autotrace/img_download.ipynb
+    slope=4.747364193107697
+    intercept=-13418532.504622981
+
+    jp2_slice_size, num_slices = get_jp2_slice_size_and_stack_length(specimen_id)
+    est_tiff_slice_size = (jp2_slice_size*slope)+intercept
+    est_tiff_stack_size = est_tiff_slice_size*num_slices
+    est_tiff_size_gb = est_tiff_stack_size/(1024**3)
+    return est_tiff_size_gb
+
+
 
 def query_jp2_paths_and_indices(specimen_id, query_engine=None):
     """Get an SWC file path for a specimen ID using the specified query engine"""

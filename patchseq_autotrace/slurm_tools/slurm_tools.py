@@ -1,6 +1,7 @@
 import os
 import datetime
 import sqlite3
+from patchseq_autotrace.utils import estimate_stack_size
 from patchseq_autotrace.slurm_tools.Slurm_DAG import Slurm_DAG
 from patchseq_autotrace import __version__ as autotrace_code_version
 
@@ -31,7 +32,7 @@ def remove_already_autotrace_specimens(input_df, specimen_id_col, autotrace_root
 
 
 def submit_specimen_pipeline_to_slurm(specimen_id, autotrace_directory, chunk_size, model_name, virtualenvironment,
-                                      parent_job_id, start_condition, gpu_device, database_file):
+                                      parent_job_id, start_condition, gpu_device, database_file, dynamic_resource_requests):
     """
     Will create a slurm workflow DAG for each step in the autotrace pipeline for the given specimen and submit the
     jobs to the slurm scheduler. Each step of the pipeline requires that the previous step be completed without fail
@@ -51,6 +52,21 @@ def submit_specimen_pipeline_to_slurm(specimen_id, autotrace_directory, chunk_si
     :param gpu_device: (int): which gpu device to use for segmentation
     :return:
     """
+    
+    # Estimate stack size and adjust slurm job parameters accordingly
+    use_multiprocessing = True
+    segmentation_time = "72:00:00"
+    segmentation_memory = "62gb"
+    pre_proc_time = "10:00:00"
+    stack_thresh_gb = 75 # as of 2/2/2024, the average size of a human cell that failed is 75gb
+    if dynamic_resource_requests:
+        estimated_stack_size_gb = estimate_stack_size(specimen_id)
+        if  estimated_stack_size_gb > stack_thresh_gb:
+            use_multiprocessing = False
+            segmentation_memory = "96gb"
+            segmentation_time = "90:00:00"
+            pre_proc_time = "24:00:00"
+    
     specimen_dir = os.path.abspath(os.path.join(autotrace_directory, str(specimen_id)))
     if not os.path.exists(specimen_dir):
         os.mkdir(specimen_dir)
@@ -101,11 +117,11 @@ def submit_specimen_pipeline_to_slurm(specimen_id, autotrace_directory, chunk_si
         "--nodes": "1",
         "--kill-on-invalid-dep": "yes",
         "--mem": "80gb",
-        "--time": "16:00:00",
+        "--time": pre_proc_time,
         "--partition": "celltypes",
         "--output": os.path.join(job_dir, f"{specimen_id}_pre_proc.log")
     }
-    pre_proc_command = f"auto-pre-proc --specimen_dir {specimen_dir} --chunk_size {chunk_size} --sqlite_runs_table_id {specimen_runs_row_id} --autotrace_tracking_database {database_file}"
+    pre_proc_command = f"auto-pre-proc --specimen_dir {specimen_dir} --chunk_size {chunk_size} --sqlite_runs_table_id {specimen_runs_row_id} --autotrace_tracking_database {database_file} --use_multiprocessing {use_multiprocessing}"
     pre_proc_command_list = ["source ~/.bashrc", f"conda activate {virtualenvironment}", pre_proc_command]
 
     # Segmentation
@@ -116,8 +132,8 @@ def submit_specimen_pipeline_to_slurm(specimen_id, autotrace_directory, chunk_si
         "--nodes": "1",
         "--kill-on-invalid-dep": "yes",
         "--cpus-per-task": "8",
-        "--mem": "62gb",
-        "--time": "72:00:00",
+        "--mem": segmentation_memory,
+        "--time": segmentation_time,
         "--gpus": "v100:1",
         "--partition": "celltypes",
         "--output": os.path.join(job_dir, f"{specimen_id}_segmentation.log")

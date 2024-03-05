@@ -1,4 +1,5 @@
 import os
+import shutil
 import tifffile as tif
 from neuroseg.nets.RSUNetMulti import RSUNetMulti
 from neuroseg.core.predictor_multilabel import Predictor
@@ -7,14 +8,17 @@ from neuroseg.datasets.filetypes import TiffVolume
 from neuroseg.datasets.dataset import Array
 import numpy as np
 from patchseq_autotrace.statics import MODEL_NAME_PATHS
-from patchseq_autotrace.utils import natural_sort, get_tifs
+from patchseq_autotrace.utils import natural_sort, get_tifs, get_jp2_slice_size_and_stack_length
 
 
 def validate(model_name_version, specimen_dir, chunk_dir, bb, gpu, chunk_size):
     seg_dir = os.path.join(specimen_dir, 'Segmentation')
     if not os.path.isdir(seg_dir):
         os.mkdir(seg_dir)
-
+    
+    specimen_id = os.path.basename(os.path.abspath(specimen_dir))
+    _, number_of_individual_tiffs = get_jp2_slice_size_and_stack_length(specimen_id)
+        
     net = RSUNetMulti()
     data_text = MODEL_NAME_PATHS[model_name_version]
 
@@ -49,8 +53,7 @@ def validate(model_name_version, specimen_dir, chunk_dir, bb, gpu, chunk_size):
                     im_file = os.path.join(ch_dir, '%03d.tif' % (count[ch]))
                     tif.imsave(im_file, this_image)
 
-        individual_tif_dir = os.path.join(specimen_dir, 'Single_Tif_Images')
-        number_of_individual_tiffs = len(get_tifs(individual_tif_dir))
+        
         for ch in range(3):
             # ch_dir = os.path.join(seg_dir, 'ch%d' % (ch + 1))
             ch_dir = os.path.join(seg_dir, "ch{}".format(ch + 1))
@@ -75,3 +78,7 @@ def validate(model_name_version, specimen_dir, chunk_dir, bb, gpu, chunk_size):
 
                 for files in duplicate_segmentations:
                     os.remove(os.path.join(ch_dir, files))
+
+    # delete chunk dir as soon as we no longer need it
+    print("Deleting Chunked Tif Directory")
+    shutil.rmtree(chunk_dir)
