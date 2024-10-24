@@ -28,7 +28,7 @@ def main(args, **kwargs):
     autotrace_tracking_database = args['autotrace_tracking_database']
     generate_raw_mip = args['generate_raw_mip']
     use_multiprocessing = args['use_multiprocessing']
-
+    print("Using multiprocessing for specimen {}: {}".format(specimen_dir,use_multiprocessing))
     status_update(database_path=autotrace_tracking_database,
                   runs_unique_id=sqlite_runs_table_id,
                   process_name='preprocessing',
