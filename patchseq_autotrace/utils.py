@@ -154,7 +154,12 @@ def get_63x_soma_coords(specimen_id, query_engine=None):
     select max(id) as image_series_id from image_series
     where specimen_id = {}
     group by specimen_id""".format(int(specimen_id))
-    imser_id_63x = query_engine(query)[0]['image_series_id']
+    imser_id_63x = query_engine(query)
+    if imser_id_63x == []:
+        return None,None
+    
+    else:
+        imser_id_63x = imser_id_63x[0]['image_series_id']
 
     sql_query = """
     select distinct 

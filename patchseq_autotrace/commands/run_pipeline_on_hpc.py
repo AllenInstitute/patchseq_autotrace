@@ -11,10 +11,10 @@ class IO_Schema(ags.ArgSchema):
     specimen_file = ags.fields.InputFile(description='Input CSV to specimen ids')
 
     specimen_id_col = ags.fields.Str(default='Cell Specimen Id',
-                                     description="Column to find specimen ids in input file")
+                                     description="This column should exist in the specimen_file input file")
 
     model_column = ags.fields.Str(default='model_to_use',
-                                  description='column name depicting which model to segment with')
+                                  description='column name depicting which model to segment with. Options are ["Aspiny1.0", "Spiny1.0"] for gluta and gaba data respectively ')
 
     chunk_size = ags.fields.Int(default=32,
                                 description="Num Tif Images to Stack into Chunks")
@@ -22,17 +22,19 @@ class IO_Schema(ags.ArgSchema):
     gpu_device = ags.fields.Int(default=0,
                                 description="which gpu device to use for segmentation")
 
-    virtual_environment = ags.fields.Str(description="Name of virtual environment")
+    virtual_environment = ags.fields.Str(description="Name of virtual environment SLURM jobs will activate to run. patchseq_autotrace must be installed in this environemnt")
 
     autotrace_root_directory = ags.fields.InputDir(default="/allen/programs/celltypes/workgroups/mousecelltypes"
-                                                           "/AutotraceReconstruction")
+                                                           "/AutotraceReconstruction",
+                                                           description="root directory where all processing will occur"  
+                                                           )
 
     max_num_specimens_at_once = ags.fields.Int(description="maximum number of specimens to be running at once on hpc")
 
     dynamic_resource_requests = ags.fields.Bool(description='whether to change HPC resource requests depending on estimated image stack size')
 
     autotrace_tracking_database = ags.fields.OutputFile(default="/allen/programs/celltypes/workgroups/mousecelltypes"
-                                                           "/AutotraceReconstruction/Autotrace_DataBase.db")
+                                                           "/AutotraceReconstruction/Autotrace_DataBase.db", allow_none=True)
     
     post_processing_workflow_column = ags.fields.Str(default=None,
                                               description = "column name in specimen_file depicting which post-processing workflow to run",
@@ -52,7 +54,9 @@ def main(args, **kwargs):
     post_processing_workflow_column = args['post_processing_workflow_column']
 
     # Will create the runs table if it does not exist
-    create_runs_table(autotrace_tracking_database)
+    if autotrace_tracking_database is not None:
+        autotrace_tracking_database = os.path.abspath(autotrace_tracking_database)
+        create_runs_table(autotrace_tracking_database)
 
     if not os.path.exists(specimen_file):
         raise ValueError("Specified input path does not exist")

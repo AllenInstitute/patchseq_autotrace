@@ -7,10 +7,10 @@ from patchseq_autotrace.slurm_tools.Slurm_DAG import Slurm_DAG
 
 class IO_Schema(ags.ArgSchema):
     specimen_dir = ags.fields.InputDir(description='Input Subject Directory')
-    sqlite_runs_table_id = ags.fields.Int(description="unique ID key for runs table in the sqlite .db file")
+    sqlite_runs_table_id = ags.fields.Int(description="unique ID key for runs table in the sqlite .db file", default=None, allow_none=True)
     autotrace_tracking_database = ags.fields.InputFile(
         description="sqlite tracking .db file. This should exist and have specimen_runs table setup as seen in "
-                    "patchseq_autotrace.database_tools prior to running this script")
+                    "patchseq_autotrace.database_tools prior to running this script", default=None, allow_none=True)
     # the below are only if swc post processing will be run
     post_processing_workflow = ags.fields.Str(default = None, allow_none=True, description = "if not None, will submit postprocessing job here")
     job_dir = ags.fields.InputDir(default = "None",description= "Directory with job files for this cells run")
@@ -33,10 +33,12 @@ def main(args, **kwargs):
     sqlite_runs_table_id = args['sqlite_runs_table_id']
     autotrace_tracking_database = args['autotrace_tracking_database']
 
-    status_update(database_path=autotrace_tracking_database,
-                  runs_unique_id=sqlite_runs_table_id,
-                  process_name='pipeline',
-                  state='finish')
+    if (sqlite_runs_table_id is not None) and (autotrace_tracking_database is not None):
+
+        status_update(database_path=autotrace_tracking_database,
+                    runs_unique_id=sqlite_runs_table_id,
+                    process_name='pipeline',
+                    state='finish')
     
     # If swc post processing workflow was given as an input, submit a job from here. We dont want
     # this job tracked in our SLURM DAG because post processing takes a while to run as seen in time request

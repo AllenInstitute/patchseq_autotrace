@@ -1,5 +1,6 @@
 import os
 import shutil
+import json
 import tifffile as tif
 from neuroseg.nets.RSUNetMulti import RSUNetMulti
 from neuroseg.core.predictor_multilabel import Predictor
@@ -18,6 +19,13 @@ def validate(model_name_version, specimen_dir, chunk_dir, bb, gpu, chunk_size):
     
     specimen_id = os.path.basename(os.path.abspath(specimen_dir))
     _, number_of_individual_tiffs = get_jp2_slice_size_and_stack_length(specimen_id)
+    if number_of_individual_tiffs is None:
+        bb_file = os.path.join(specimen_dir, 'bbox_{}.json'.format(specimen_id))
+        
+        with open(bb_file, "r") as f:
+            bound_box_dict = json.load(f)
+        
+        number_of_individual_tiffs = bound_box_dict['num_tiff_files']
         
     net = RSUNetMulti()
     data_text = MODEL_NAME_PATHS[model_name_version]

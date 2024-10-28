@@ -14,10 +14,11 @@ class IO_Schema(ags.ArgSchema):
     chunk_size = ags.fields.Int(default=32, description="Num Tif Images to Stack into Chunks")
     model_name = ags.fields.Str(description='path to model checkpoint')
     gpu_device = ags.fields.Int(default=0)
-    sqlite_runs_table_id = ags.fields.Int(description="unique ID key for runs table in the sqlite .db file")
+    sqlite_runs_table_id = ags.fields.Int(description="unique ID key for runs table in the sqlite .db file",default=None,allow_none=True)
     autotrace_tracking_database = ags.fields.InputFile(
         description="sqlite tracking .db file. This should exist and have specimen_runs table setup as seen in "
-                    "patchseq_autotrace.database_tools prior to running this script")
+                    "patchseq_autotrace.database_tools prior to running this script",
+                    default=None,allow_none=True)
 
 def main(args, **kwargs):
     specimen_dir = args['specimen_dir']
@@ -27,10 +28,12 @@ def main(args, **kwargs):
     sqlite_runs_table_id = args['sqlite_runs_table_id']
     autotrace_tracking_database = args['autotrace_tracking_database']
 
-    status_update(database_path=autotrace_tracking_database,
-                  runs_unique_id=sqlite_runs_table_id,
-                  process_name='segmentation',
-                  state='start')
+    if (sqlite_runs_table_id is not None) and (autotrace_tracking_database is not None ):
+            
+        status_update(database_path=autotrace_tracking_database,
+                    runs_unique_id=sqlite_runs_table_id,
+                    process_name='segmentation',
+                    state='start')
 
     specimen_id = os.path.basename(os.path.abspath(specimen_dir))
     chunk_dir = os.path.join(specimen_dir, 'Chunks_of_{}'.format(chunk_size))
@@ -41,11 +44,12 @@ def main(args, **kwargs):
     # bb = df.bound_boxing.values
 
     validate(model_name, specimen_dir, chunk_dir, bb, gpu_device, chunk_size)
-
-    status_update(database_path=autotrace_tracking_database,
-                  runs_unique_id=sqlite_runs_table_id,
-                  process_name='segmentation',
-                  state='finish')
+    
+    if (sqlite_runs_table_id is not None) and (autotrace_tracking_database is not None ):
+        status_update(database_path=autotrace_tracking_database,
+                    runs_unique_id=sqlite_runs_table_id,
+                    process_name='segmentation',
+                    state='finish')
 
 def console_script():
     module = ags.ArgSchemaParser(schema_type=IO_Schema)
