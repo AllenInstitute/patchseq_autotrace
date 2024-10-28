@@ -49,6 +49,8 @@ def postprocess(specimen_dir, segmentation_dir, model_name, threshold=0.3, size_
 
         # find x,y,z and intensity values for non zero coordinates
         csv_ofile = os.path.join(specimen_dir, "Segmentation_{}.csv".format(chan))
+        if os.path.exists(csv_ofile):
+            os.remove(csv_ofile)
         cgx, cgy, cgz = extract_non_zero_coords(tif_directory=channel_dir, thresh=thresh, max_list_size=500000,
                                                 output_csv=csv_ofile)
 

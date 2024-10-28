@@ -71,7 +71,7 @@ def crop_dimensions(input_tif_dir, base=64):
     return x1, y1, x2, y2
 
 
-def _crop_and_invert(infile, ofile, x1, x2, y1, y2):
+def _crop_and_invert(infile, ofile, x1, x2, y1, y2, invert_bool):
     """
     crop inpuyt file given inices and invert the greyscale color vals
     :param infile:
@@ -84,20 +84,25 @@ def _crop_and_invert(infile, ofile, x1, x2, y1, y2):
     """
     img = cv2.imread(infile, cv2.IMREAD_UNCHANGED)
     cropped_img = img[y1:y2, x1:x2]
-    cropped_img_inverted = 255 - cropped_img
-    cv2.imwrite(ofile, cropped_img_inverted)
+    if invert_bool:
+        final_img = 255 - cropped_img
+    else:
+        final_img = cropped_img
+    cv2.imwrite(ofile, final_img)
 
 
-def crop_and_invert_directory_multiproc(input_tif_dir, x1, x2, y1, y2, chunk_size, parallel):
+def crop_and_invert_directory_multiproc(input_tif_dir, x1, x2, y1, y2, chunk_size, parallel, invert_images=True):
+    print("Cropping and inverting (?invert_bool={}?)\n{}".format(invert_images,input_tif_dir))
+    
     parallel_func_inputs = []
     tif_files = get_tifs(input_tif_dir)
     for fn in tif_files:
         infile = os.path.join(input_tif_dir, fn)
         ofile = infile
         if parallel:
-            parallel_func_inputs.append((infile, ofile, x1, x2, y1, y2))
+            parallel_func_inputs.append((infile, ofile, x1, x2, y1, y2, invert_images))
         else:
-            _crop_and_invert(infile, ofile, x1, x2, y1, y2)
+            _crop_and_invert(infile, ofile, x1, x2, y1, y2, invert_images)
             
     if parallel:
         p = Pool(processes=chunk_size)

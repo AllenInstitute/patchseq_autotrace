@@ -33,7 +33,7 @@ def query(query, user, host, database,
     conn, cursor = _connect(user, host, database, password, port)
 
     # Guard against non-ascii characters in query
-    query = ''.join([i if ord(i) < 128 else ' ' for i in query])
+    query = ''.join([i if ord(i) < 128 else ' ' for i in query]) 
 
     try:
         results = _select(cursor, query)
@@ -61,9 +61,13 @@ def get_jp2_slice_size_and_stack_length(specimen_id):
     
     """
     arg_dicts = query_for_image_paths(specimen_id)
-    single_file_size = os.path.getsize("/"+arg_dicts[0]['input_jp2'])
-    return single_file_size, len(arg_dicts)
-
+    if len(arg_dicts)>1:
+        single_file_size = os.path.getsize("/"+arg_dicts[0]['input_jp2'])
+        return single_file_size, len(arg_dicts)
+    else:
+        print("WARNING: No images found for specimen {}".format(specimen_id))
+        return None,None
+    
 def query_for_image_paths(specimen_id, query_engine=None):
     """Get an SWC file path for a specimen ID using the specified query engine"""
     if query_engine is None:
@@ -102,10 +106,13 @@ def estimate_stack_size(specimen_id):
     intercept=-13418532.504622981
 
     jp2_slice_size, num_slices = get_jp2_slice_size_and_stack_length(specimen_id)
-    est_tiff_slice_size = (jp2_slice_size*slope)+intercept
-    est_tiff_stack_size = est_tiff_slice_size*num_slices
-    est_tiff_size_gb = est_tiff_stack_size/(1024**3)
-    return est_tiff_size_gb
+    if jp2_slice_size is not None:
+        est_tiff_slice_size = (jp2_slice_size*slope)+intercept
+        est_tiff_stack_size = est_tiff_slice_size*num_slices
+        est_tiff_size_gb = est_tiff_stack_size/(1024**3)
+        return est_tiff_size_gb
+    else:
+        return 0
 
 
 
@@ -147,7 +154,12 @@ def get_63x_soma_coords(specimen_id, query_engine=None):
     select max(id) as image_series_id from image_series
     where specimen_id = {}
     group by specimen_id""".format(int(specimen_id))
-    imser_id_63x = query_engine(query)[0]['image_series_id']
+    imser_id_63x = query_engine(query)
+    if imser_id_63x == []:
+        return None,None
+    
+    else:
+        imser_id_63x = imser_id_63x[0]['image_series_id']
 
     sql_query = """
     select distinct 

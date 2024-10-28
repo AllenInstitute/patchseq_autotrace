@@ -26,13 +26,14 @@ def remove_already_autotrace_specimens(input_df, specimen_id_col, autotrace_root
             newest_raw_name = os.path.join(spdir, "SWC", "Raw", "{}_{}_{}_1.0.swc".format(specimen_id, model_name, autotrace_code_version))
             if os.path.exists(newest_raw_name):
                 remove_from_this_run.append(int(specimen_id))
-    print("Removing {} already auto-traced specimens".format(len(remove_from_this_run)))
+    print("Removing {} out of {} already auto-traced specimens".format(len(remove_from_this_run), input_df.shape[0]))
     input_df = input_df[~input_df[specimen_id_col].isin(remove_from_this_run)]
     return input_df
 
 
 def submit_specimen_pipeline_to_slurm(specimen_id, autotrace_directory, chunk_size, model_name, virtualenvironment,
-                                      parent_job_id, start_condition, gpu_device, database_file, dynamic_resource_requests):
+                                      parent_job_id, start_condition, gpu_device, database_file, dynamic_resource_requests,
+                                      post_processing_workflow):
     """
     Will create a slurm workflow DAG for each step in the autotrace pipeline for the given specimen and submit the
     jobs to the slurm scheduler. Each step of the pipeline requires that the previous step be completed without fail
@@ -50,6 +51,7 @@ def submit_specimen_pipeline_to_slurm(specimen_id, autotrace_directory, chunk_si
     :param parent_job_id: (int): the job id that this specimen must wait to finish before it is allowed to begin
     :param start_condition: (str): slurm depednency conditions (afterok, afterany, etc.)
     :param gpu_device: (int): which gpu device to use for segmentation
+    :param post_processing_workflow (str or None): if not None, indicates which post-processing workflow to run on raw swc file
     :return:
     """
     
@@ -58,7 +60,7 @@ def submit_specimen_pipeline_to_slurm(specimen_id, autotrace_directory, chunk_si
     segmentation_time = "72:00:00"
     segmentation_memory = "62gb"
     pre_proc_time = "10:00:00"
-    stack_thresh_gb = 75 # as of 2/2/2024, the average size of a human cell that failed is 75gb
+    stack_thresh_gb = 50 # as of 2/2/2024, the average size of a human cell that failed is 75gb
     if dynamic_resource_requests:
         estimated_stack_size_gb = estimate_stack_size(specimen_id)
         if  estimated_stack_size_gb > stack_thresh_gb:
@@ -187,7 +189,7 @@ def submit_specimen_pipeline_to_slurm(specimen_id, autotrace_directory, chunk_si
         "--partition": "celltypes",
         "--output": os.path.join(job_dir, f"{specimen_id}_cleanup.log")
     }
-    cleanup_command = f"auto-cleanup --specimen_dir {specimen_dir} --sqlite_runs_table_id {specimen_runs_row_id} --autotrace_tracking_database {database_file}"
+    cleanup_command = f"auto-cleanup --specimen_dir {specimen_dir} --sqlite_runs_table_id {specimen_runs_row_id} --autotrace_tracking_database {database_file} --post_processing_workflow {post_processing_workflow} --job_dir {job_dir} --model_name {model_name}"
     cleanup_command_list = ["source ~/.bashrc", f"conda activate {virtualenvironment}", cleanup_command]
 
     # Build the node list needed to construct a workflow dag
@@ -241,8 +243,7 @@ def submit_specimen_pipeline_to_slurm(specimen_id, autotrace_directory, chunk_si
             "job_file": cleanup_job_file,
             "start_condition": "afterany"
         },
-
-    ]
+    ]         
 
     pipeline_dag = Slurm_DAG(slurm_dag_node_list)
     last_job_id = pipeline_dag.submit_dag_to_scheduler(parent_job_id=parent_job_id,

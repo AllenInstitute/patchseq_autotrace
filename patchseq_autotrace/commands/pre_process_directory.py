@@ -12,14 +12,14 @@ from patchseq_autotrace.database_tools import status_update
 class IO_Schema(ags.ArgSchema):
     specimen_dir = ags.fields.InputDir(description='Input Subject Directory, expecting Single_Tif_Images subdir exists')
     chunk_size = ags.fields.Int(default=32, description="Num Tif Images to Stack into Chunks")
-    sqlite_runs_table_id = ags.fields.Int(description="unique ID key for runs table in the sqlite .db file")
+    sqlite_runs_table_id = ags.fields.Int(description="unique ID key for runs table in the sqlite .db file", default=None, allow_none=True)
     autotrace_tracking_database = ags.fields.InputFile(
         description="sqlite tracking .db file. This should exist and have specimen_runs table setup as seen in "
-                    "patchseq_autotrace.database_tools prior to running this script")
+                    "patchseq_autotrace.database_tools prior to running this script", default=None, allow_none=True)
     generate_raw_mip = ags.fields.Bool(description="bool indicating whether to generate max intensity projection for raw images",
                                    default=False)
     use_multiprocessing = ags.fields.Bool(description='whether to use multiprocessing or not')
-
+    invert_images = ags.fields.Bool(description="whether or not to invert images.Signal should be bright and background should be dark",default=True)
 
 def main(args, **kwargs):
     specimen_dir = args['specimen_dir']
@@ -28,14 +28,17 @@ def main(args, **kwargs):
     autotrace_tracking_database = args['autotrace_tracking_database']
     generate_raw_mip = args['generate_raw_mip']
     use_multiprocessing = args['use_multiprocessing']
+    invert_images = args['invert_images']
 
-    status_update(database_path=autotrace_tracking_database,
-                  runs_unique_id=sqlite_runs_table_id,
-                  process_name='preprocessing',
-                  state='start')
+    print("Using multiprocessing for specimen {}: {}".format(specimen_dir,use_multiprocessing))
+    if (sqlite_runs_table_id is not None) and (autotrace_tracking_database is not None ):
+
+        status_update(database_path=autotrace_tracking_database,
+                    runs_unique_id=sqlite_runs_table_id,
+                    process_name='preprocessing',
+                    state='start')
 
     specimen_id = os.path.basename(os.path.abspath(specimen_dir))
-    print(specimen_id)
     # # Ensure image directory exists
     input_image_dir = os.path.join(specimen_dir, "Single_Tif_Images")
     if not os.path.exists(input_image_dir):
@@ -46,13 +49,15 @@ def main(args, **kwargs):
 
     # Find crop dimensions and crop the images
     x1, y1, x2, y2 = crop_dimensions(input_image_dir)
-    crop_and_invert_directory_multiproc(input_image_dir, x1, x2, y1, y2, chunk_size, parallel=use_multiprocessing)
+    crop_and_invert_directory_multiproc(input_image_dir, x1, x2, y1, y2, chunk_size, parallel=use_multiprocessing, invert_images = invert_images)
 
     # Create bounding box file
     bb_file = os.path.join(specimen_dir, 'bbox_{}.json'.format(specimen_id))
     bound_box = solve_for_bounding_box(input_image_dir, chunk_size)
+    n_tiff_files = len([i for i in os.listdir(input_image_dir) if '.tif' in i])
     bb_dict = {"specimen_id": specimen_id,
-               "bounding_box": bound_box}
+               "bounding_box": bound_box,
+               "num_tiff_files":n_tiff_files}
     with open(bb_file, "w") as f:
         json.dump(bb_dict, f)
 
@@ -69,13 +74,14 @@ def main(args, **kwargs):
     convert_stack_to_3dchunks(chunk_size, input_image_dir, chunk_dir)
 
     # remove single tif directory since it is no longer needed at this point
-    shutil.rmtree(input_image_dir)
+    # shutil.rmtree(input_image_dir)
     
+    if (sqlite_runs_table_id is not None) and (autotrace_tracking_database is not None ):
     
-    status_update(database_path=autotrace_tracking_database,
-                  runs_unique_id=sqlite_runs_table_id,
-                  process_name='preprocessing',
-                  state='finish')
+        status_update(database_path=autotrace_tracking_database,
+                    runs_unique_id=sqlite_runs_table_id,
+                    process_name='preprocessing',
+                    state='finish')
 
 def console_script():
     this_module = ags.ArgSchemaParser(schema_type=IO_Schema)
