@@ -219,7 +219,13 @@ def process_segment(segment_df, soma_node, connection_threshold, current_node_co
     return node_list
 
 
-def get_soma_xyz(max_intensity_proj_ch1_pth, yz_mip_pth, specimen_id, min_pixel_size_of_soma=500):
+def get_soma_xyz(max_intensity_proj_ch1_pth, 
+                 yz_mip_pth, 
+                 specimen_id, 
+                 precalcualted_soma_x,
+                 precalcualted_soma_y,
+                 min_pixel_size_of_soma=500,
+                 ):
     """
     Our soma segmentation will segment all cells in an image stack, not just our cell of interest. Also, things like
     soma leakage occurs which causes many soma dots to appear in the max intensity projection. This function will take
@@ -241,9 +247,13 @@ def get_soma_xyz(max_intensity_proj_ch1_pth, yz_mip_pth, specimen_id, min_pixel_
 
     # if we can get 63x soma coordinates from LIMS we will use those as our x and y
     # then we only need to solve for z
-    xs_63x, ys_63x = get_63x_soma_coords(specimen_id)
+    if precalcualted_soma_x is None:
+        xs_63x, ys_63x = get_63x_soma_coords(specimen_id)
+    else:
+        xs_63x = [precalcualted_soma_x]
+        ys_63x = [precalcualted_soma_y]
+        
     spacer = 300
-
     if (xs_63x != None) and (ys_63x != None):
         avg_x = np.mean(xs_63x)
         avg_y = np.mean(ys_63x)
@@ -407,7 +417,7 @@ def get_soma_xyz(max_intensity_proj_ch1_pth, yz_mip_pth, specimen_id, min_pixel_
 
     return centroid, connection_threshold, mean_radius, no_soma
 
-def skeleton_to_swc(specimen_dir, model_and_version, ):
+def skeleton_to_swc(specimen_dir, model_and_version, precalcualted_soma_x=None, precalcualted_soma_y=None):
     """
     An optimized verison of archived_skeleton_to_swc. This code is showing much faster skeleton 
     to swc speeds with equivalent output swc files. 
@@ -415,6 +425,9 @@ def skeleton_to_swc(specimen_dir, model_and_version, ):
     Args:
         specimen_dir (str): path to specimen directory
         model_and_version (str): segmentation model and version
+        precalcualted_soma_x (float): precalculated 63x soma location in x
+        precalcualted_soma_y (float): precalculated 63x soma location in y
+
     """
 
     sp_id = os.path.basename(os.path.abspath(specimen_dir))
@@ -424,7 +437,9 @@ def skeleton_to_swc(specimen_dir, model_and_version, ):
     ch1_yz_mip_pth = os.path.join(specimen_dir, "MAX_yz_Segmentation_ch1.tif")
     soma_coordinates, connection_threshold, mean_radius, no_soma  = get_soma_xyz(max_intensity_proj_ch1_pth=ch1_mip_pth, 
                                                                      yz_mip_pth=ch1_yz_mip_pth, 
-                                                                     specimen_id=sp_id, 
+                                                                     specimen_id=sp_id,
+                                                                    precalcualted_soma_x=precalcualted_soma_x,
+                                                                    precalcualted_soma_y=precalcualted_soma_y,
                                                                      min_pixel_size_of_soma=500)
     skel_df = pd.read_csv(skeleton_labels_file)
     for ii in ['x','y','z']:

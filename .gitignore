@@ -2,6 +2,8 @@
 **/TestAutotraceDir/
 test_specimens.csv
 aws_commands.sh
+BIL_PSC_Migration/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

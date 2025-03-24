@@ -10,7 +10,8 @@ from patchseq_autotrace.database_tools import status_update
 
 
 class IO_Schema(ags.ArgSchema):
-    specimen_dir = ags.fields.InputDir(description='Input Subject Directory, expecting Single_Tif_Images subdir exists')
+    specimen_dir = ags.fields.InputDir(description='Input Subject Directory')
+    raw_image_directory = ags.fields.InputDir(default=None, allow_none=True, description='Path to raw image .tif directory ')
     chunk_size = ags.fields.Int(default=32, description="Num Tif Images to Stack into Chunks")
     sqlite_runs_table_id = ags.fields.Int(description="unique ID key for runs table in the sqlite .db file", default=None, allow_none=True)
     autotrace_tracking_database = ags.fields.InputFile(
@@ -23,6 +24,7 @@ class IO_Schema(ags.ArgSchema):
 
 def main(args, **kwargs):
     specimen_dir = args['specimen_dir']
+    raw_image_directory = args['raw_image_directory']
     chunk_size = args['chunk_size']
     sqlite_runs_table_id = args['sqlite_runs_table_id']
     autotrace_tracking_database = args['autotrace_tracking_database']
@@ -40,13 +42,18 @@ def main(args, **kwargs):
 
     specimen_id = os.path.basename(os.path.abspath(specimen_dir))
     # # Ensure image directory exists
-    input_image_dir = os.path.join(specimen_dir, "Single_Tif_Images")
-    if not os.path.exists(input_image_dir):
-        get_image_stack_for_specimen(specimen_id, input_image_dir, parallel=use_multiprocessing)
+    if raw_image_directory is None:
+        # Did not receive a non-standard BIL location of image
+        input_image_dir = os.path.join(specimen_dir, "Single_Tif_Images")
+        if not os.path.exists(input_image_dir):
+            get_image_stack_for_specimen(specimen_id, input_image_dir, parallel=use_multiprocessing)
 
-    elif len(os.listdir(input_image_dir)) == 0:
-        get_image_stack_for_specimen(specimen_id, input_image_dir, parallel=use_multiprocessing)
-
+        elif len(os.listdir(input_image_dir)) == 0:
+            get_image_stack_for_specimen(specimen_id, input_image_dir, parallel=use_multiprocessing)
+    else:
+        # use the non-standard raw image directory
+        input_image_dir = raw_image_directory
+        
     # Find crop dimensions and crop the images
     x1, y1, x2, y2 = crop_dimensions(input_image_dir)
     crop_and_invert_directory_multiproc(input_image_dir, x1, x2, y1, y2, chunk_size, parallel=use_multiprocessing, invert_images = invert_images)

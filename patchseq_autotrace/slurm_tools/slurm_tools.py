@@ -1,4 +1,5 @@
 import os
+import math
 import datetime
 import sqlite3
 from patchseq_autotrace.utils import estimate_stack_size
@@ -30,10 +31,23 @@ def remove_already_autotrace_specimens(input_df, specimen_id_col, autotrace_root
     input_df = input_df[~input_df[specimen_id_col].isin(remove_from_this_run)]
     return input_df
 
-
+def bil_psc_adjust_slurm_kwargs(kwarg_dict,gpu):
+    """Jobs run on BIL/PSC will need to adjust resource requests to adhere to their
+    policy of 1 cpu per 2 Gb of RAM
+    """
+    required_memory = kwarg_dict['mem']
+    cpus_needed = math.ceil(required_memory/2)
+    kwarg_dict['--cpus-per-task'] = str(cpus_needed)
+    kwarg_dict['--partition'] = "RM-shared"
+    if gpu:
+        kwarg_dict['--partition'] = "GPU-shared"
+        
+    del kwarg_dict['--mem']
+    return kwarg_dict
+    
 def submit_specimen_pipeline_to_slurm(specimen_id, autotrace_directory, chunk_size, model_name, virtualenvironment,
                                       parent_job_id, start_condition, gpu_device, database_file, dynamic_resource_requests,
-                                      post_processing_workflow):
+                                      post_processing_workflow, bil_data_package=None):
     """
     Will create a slurm workflow DAG for each step in the autotrace pipeline for the given specimen and submit the
     jobs to the slurm scheduler. Each step of the pipeline requires that the previous step be completed without fail
@@ -52,6 +66,7 @@ def submit_specimen_pipeline_to_slurm(specimen_id, autotrace_directory, chunk_si
     :param start_condition: (str): slurm depednency conditions (afterok, afterany, etc.)
     :param gpu_device: (int): which gpu device to use for segmentation
     :param post_processing_workflow (str or None): if not None, indicates which post-processing workflow to run on raw swc file
+    :param bil_data_package (dict):
     :return:
     """
     
@@ -62,7 +77,7 @@ def submit_specimen_pipeline_to_slurm(specimen_id, autotrace_directory, chunk_si
     pre_proc_time = "10:00:00"
     stack_thresh_gb = 50 # as of 2/2/2024, the average size of a human cell that failed is 75gb
     if dynamic_resource_requests:
-        estimated_stack_size_gb = estimate_stack_size(specimen_id)
+        estimated_stack_size_gb = estimate_stack_size(specimen_id, bil_data_package)
         if  estimated_stack_size_gb > stack_thresh_gb:
             use_multiprocessing = False
             segmentation_memory = "96gb"
@@ -123,9 +138,14 @@ def submit_specimen_pipeline_to_slurm(specimen_id, autotrace_directory, chunk_si
         "--partition": "celltypes",
         "--output": os.path.join(job_dir, f"{specimen_id}_pre_proc.log")
     }
+    
     pre_proc_command = f"auto-pre-proc --specimen_dir {specimen_dir} --chunk_size {chunk_size} --sqlite_runs_table_id {specimen_runs_row_id} --autotrace_tracking_database {database_file} --use_multiprocessing {use_multiprocessing}"
+    if (bil_data_package is not None):
+        if (bil_data_package['image_storage_location'] is not None):
+            pre_proc_command = pre_proc_command + " --raw_image_directory {}".format(bil_data_package['image_storage_location'] )
+            
     pre_proc_command_list = ["source ~/.bashrc", f"conda activate {virtualenvironment}", pre_proc_command]
-
+    
     # Segmentation
     segmentation_job_file = os.path.join(job_dir, f"{specimen_id}_segmentation.sh")
     segmentation_slurm_kwargs = {
@@ -174,6 +194,13 @@ def submit_specimen_pipeline_to_slurm(specimen_id, autotrace_directory, chunk_si
         "--output": os.path.join(job_dir, f"{specimen_id}_stack_2_swc.log")
     }
     stack_2_swc_command = f"auto-skeleton-to-swc --specimen_dir {specimen_dir} --model_name {model_name}  --sqlite_runs_table_id {specimen_runs_row_id} --autotrace_tracking_database {database_file}"
+    
+    if bil_data_package is not None:
+        if bil_data_package['soma_x'] is not None: 
+            precalcualted_soma_x = bil_data_package['soma_x']
+            precalcualted_soma_y = bil_data_package['soma_y']       
+            stack_2_swc_command = stack_2_swc_command + f" --precalcualted_soma_x {precalcualted_soma_x} --precalcualted_soma_y {precalcualted_soma_y}"
+    
     skeleton_2_swc_command_list = ["source ~/.bashrc", f"conda activate {virtualenvironment}", stack_2_swc_command]
 
     # Cleanup
@@ -184,7 +211,7 @@ def submit_specimen_pipeline_to_slurm(specimen_id, autotrace_directory, chunk_si
         "--cpus-per-task": "8",
         "--nodes": "1",
         "--kill-on-invalid-dep": "yes",
-        "--mem": "4gb",
+        "--mem": "2gb",
         "--time": "2:00:00",
         "--partition": "celltypes",
         "--output": os.path.join(job_dir, f"{specimen_id}_cleanup.log")
@@ -192,6 +219,17 @@ def submit_specimen_pipeline_to_slurm(specimen_id, autotrace_directory, chunk_si
     cleanup_command = f"auto-cleanup --specimen_dir {specimen_dir} --sqlite_runs_table_id {specimen_runs_row_id} --autotrace_tracking_database {database_file} --post_processing_workflow {post_processing_workflow} --job_dir {job_dir} --model_name {model_name}"
     cleanup_command_list = ["source ~/.bashrc", f"conda activate {virtualenvironment}", cleanup_command]
 
+    if bil_data_package is not None:
+        # code will be ran on BIL, we will need to adjust resource requests to adhere to their
+        # policy of 1 cpu per 2 Gb of RAM
+
+        pre_process_slurm_kwargs = bil_psc_adjust_slurm_kwargs(pre_process_slurm_kwargs, False)
+        segmentation_slurm_kwargs = bil_psc_adjust_slurm_kwargs(segmentation_slurm_kwargs,True)
+        post_proc_segmentation_slurm_kwargs = bil_psc_adjust_slurm_kwargs(post_proc_segmentation_slurm_kwargs,False)
+        skeleton_to_swc_slurm_kwargs = bil_psc_adjust_slurm_kwargs(skeleton_to_swc_slurm_kwargs, False)
+        cleanup_kwargs = bil_psc_adjust_slurm_kwargs(cleanup_kwargs,False)
+
+    
     # Build the node list needed to construct a workflow dag
     slurm_dag_node_list = [
 

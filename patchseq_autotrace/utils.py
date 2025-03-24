@@ -90,12 +90,13 @@ def query_for_image_paths(specimen_id, query_engine=None):
 
     return results
 
-def estimate_stack_size(specimen_id):
+def estimate_stack_size(specimen_id, bil_data_package):
     """
     Given a specimen ID get the estimated tif stack size in gb
 
     Args:
         specimen_id (int): specimen ID
+        bil_data_package (dict)
 
     Returns:
         est_tiff_size_gb: float, estimated stack size of the specimens tif stack
@@ -105,16 +106,27 @@ def estimate_stack_size(specimen_id):
     slope=4.747364193107697
     intercept=-13418532.504622981
 
-    jp2_slice_size, num_slices = get_jp2_slice_size_and_stack_length(specimen_id)
-    if jp2_slice_size is not None:
-        est_tiff_slice_size = (jp2_slice_size*slope)+intercept
-        est_tiff_stack_size = est_tiff_slice_size*num_slices
-        est_tiff_size_gb = est_tiff_stack_size/(1024**3)
-        return est_tiff_size_gb
+    if bil_data_package is None:
+        jp2_slice_size, num_slices = get_jp2_slice_size_and_stack_length(specimen_id)
+        if jp2_slice_size is not None:
+            est_tiff_slice_size = (jp2_slice_size*slope)+intercept
+            est_tiff_stack_size = est_tiff_slice_size*num_slices
+            est_tiff_size_gb = est_tiff_stack_size/(1024**3)
+            return est_tiff_size_gb
+        else:
+            return 0
     else:
-        return 0
-
-
+        specimen_tif_dir = bil_data_package['image_storage_location']
+        if specimen_tif_dir is not None:
+                
+            tif_images = get_tifs(specimen_tif_dir)
+            n_slices = len(tif_images)
+            file_path = os.path.join(specimen_tif_dir, tif_images[0])
+            size_in_bytes = os.path.getsize(file_path)
+            size_in_gb = n_slices * (size_in_bytes / (1024 ** 3))
+            return size_in_gb
+        else:
+            raise ValueError("Need logic for precalculating image dir size for non-public data on BIL")
 
 def query_jp2_paths_and_indices(specimen_id, query_engine=None):
     """Get an SWC file path for a specimen ID using the specified query engine"""
