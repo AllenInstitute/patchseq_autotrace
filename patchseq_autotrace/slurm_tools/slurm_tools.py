@@ -35,14 +35,14 @@ def bil_psc_adjust_slurm_kwargs(kwarg_dict,gpu):
     """Jobs run on BIL/PSC will need to adjust resource requests to adhere to their
     policy of 1 cpu per 2 Gb of RAM
     """
-    required_memory = kwarg_dict['--mem']
-    cpus_needed = math.ceil(required_memory/2)
+    required_memory = float(kwarg_dict['--mem'])
+    cpus_needed = int(math.ceil(required_memory/2))
     kwarg_dict['--cpus-per-task'] = str(cpus_needed)
     kwarg_dict['--partition'] = "RM-shared"
     if gpu:
         kwarg_dict['--partition'] = "GPU-shared"
-        
-    del kwarg_dict['--mem']
+    else:
+        del kwarg_dict['--mem']
     return kwarg_dict
     
 def submit_specimen_pipeline_to_slurm(specimen_id, autotrace_directory, chunk_size, model_name, virtualenvironment,
