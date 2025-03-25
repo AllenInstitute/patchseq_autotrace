@@ -56,12 +56,16 @@ def main(args, **kwargs):
         
     # Find crop dimensions and crop the images
     x1, y1, x2, y2 = crop_dimensions(input_image_dir)
-    crop_and_invert_directory_multiproc(input_image_dir, x1, x2, y1, y2, chunk_size, parallel=use_multiprocessing, invert_images = invert_images)
+    
+    # If this is run on PSC (where input_image_dir is not in the specimen_dir)
+    # we will not want to crop and invert the original publication uploaded files
+    processed_image_dir = os.path.join(specimen_dir, "Single_Tif_Images")
+    crop_and_invert_directory_multiproc(input_image_dir, processed_image_dir,  x1, x2, y1, y2, chunk_size, parallel=use_multiprocessing, invert_images = invert_images)
 
     # Create bounding box file
     bb_file = os.path.join(specimen_dir, 'bbox_{}.json'.format(specimen_id))
-    bound_box = solve_for_bounding_box(input_image_dir, chunk_size)
-    n_tiff_files = len([i for i in os.listdir(input_image_dir) if '.tif' in i])
+    bound_box = solve_for_bounding_box(processed_image_dir, chunk_size)
+    n_tiff_files = len([i for i in os.listdir(processed_image_dir) if '.tif' in i])
     bb_dict = {"specimen_id": specimen_id,
                "bounding_box": bound_box,
                "num_tiff_files":n_tiff_files}
@@ -72,13 +76,13 @@ def main(args, **kwargs):
         # Generate MIP (memory efficient)
         mip_ofile = os.path.join(specimen_dir, "Single_Tif_Images_Mip.tif")
         if not os.path.exists(mip_ofile):
-            dir_to_mip(indir=input_image_dir, ofile=mip_ofile, max_num_file_to_load=chunk_size, mip_axis=0)
+            dir_to_mip(indir=processed_image_dir, ofile=mip_ofile, max_num_file_to_load=chunk_size, mip_axis=0)
 
     # Convert directory with single tif files to 3d chunks for segmentation
     chunk_dir = os.path.join(specimen_dir, "Chunks_of_{}".format(chunk_size))
     if not os.path.exists(chunk_dir):
         os.mkdir(chunk_dir)
-    convert_stack_to_3dchunks(chunk_size, input_image_dir, chunk_dir)
+    convert_stack_to_3dchunks(chunk_size, processed_image_dir, chunk_dir)
 
     # remove single tif directory since it is no longer needed at this point
     # shutil.rmtree(input_image_dir)

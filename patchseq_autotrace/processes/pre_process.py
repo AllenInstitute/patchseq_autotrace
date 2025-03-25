@@ -91,13 +91,17 @@ def _crop_and_invert(infile, ofile, x1, x2, y1, y2, invert_bool):
     cv2.imwrite(ofile, final_img)
 
 
-def crop_and_invert_directory_multiproc(input_tif_dir, x1, x2, y1, y2, chunk_size, parallel, invert_images=True):
+def crop_and_invert_directory_multiproc(input_tif_dir, output_tif_dir, x1, x2, y1, y2, chunk_size, parallel, invert_images=True):
     print("Cropping and inverting (?invert_bool={}?)\n{}".format(invert_images,input_tif_dir))
     
+    if not os.path.exists(output_tif_dir):
+        os.mkdir(output_tif_dir)
+        
     parallel_func_inputs = []
     tif_files = get_tifs(input_tif_dir)
     for fn in tif_files:
         infile = os.path.join(input_tif_dir, fn)
+        ofile = os.path.join(output_tif_dir, fn)
         ofile = infile
         if parallel:
             parallel_func_inputs.append((infile, ofile, x1, x2, y1, y2, invert_images))
