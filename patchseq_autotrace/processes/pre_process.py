@@ -102,7 +102,6 @@ def crop_and_invert_directory_multiproc(input_tif_dir, output_tif_dir, x1, x2, y
     for fn in tif_files:
         infile = os.path.join(input_tif_dir, fn)
         ofile = os.path.join(output_tif_dir, fn)
-        ofile = infile
         if parallel:
             parallel_func_inputs.append((infile, ofile, x1, x2, y1, y2, invert_images))
         else:
