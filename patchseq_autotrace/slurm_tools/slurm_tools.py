@@ -35,7 +35,7 @@ def bil_psc_adjust_slurm_kwargs(kwarg_dict,gpu):
     """Jobs run on BIL/PSC will need to adjust resource requests to adhere to their
     policy of 1 cpu per 2 Gb of RAM
     """
-    required_memory = kwarg_dict['mem']
+    required_memory = kwarg_dict['--mem']
     cpus_needed = math.ceil(required_memory/2)
     kwarg_dict['--cpus-per-task'] = str(cpus_needed)
     kwarg_dict['--partition'] = "RM-shared"
