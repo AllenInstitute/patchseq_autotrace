@@ -60,7 +60,7 @@ def main(args, **kwargs):
     virtual_environment = args['virtual_environment']
     autotrace_root_directory = os.path.abspath(args['autotrace_root_directory'])
     max_n = args['max_num_specimens_at_once']
-    autotrace_tracking_database = os.path.abspath(args['autotrace_tracking_database'])
+    autotrace_tracking_database = args['autotrace_tracking_database'] 
     post_processing_workflow_column = args['post_processing_workflow_column']
     soma_x_column = args['soma_x_column']
     soma_y_column = args['soma_y_column']
@@ -68,6 +68,8 @@ def main(args, **kwargs):
     anaconda_version_to_activate = args['anaconda_version_to_activate']
         
     # Will create the runs table if it does not exist
+    if autotrace_tracking_database == "None":
+        autotrace_tracking_database = None
     if autotrace_tracking_database is not None:
         autotrace_tracking_database = os.path.abspath(autotrace_tracking_database)
         create_runs_table(autotrace_tracking_database)
