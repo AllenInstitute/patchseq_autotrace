@@ -42,7 +42,7 @@ class IO_Schema(ags.ArgSchema):
 
     dynamic_resource_requests = ags.fields.Bool(description='whether to change HPC resource requests depending on estimated image stack size')
 
-    autotrace_tracking_database = ags.fields.OutputFile(default="/bil/proj/um1lein/autotrace/AccessAutotraceReconstruction/Autotrace_DataBase.db", allow_none=True)
+    autotrace_tracking_database = ags.fields.Str(default="/bil/proj/um1lein/autotrace/AccessAutotraceReconstruction/Autotrace_DataBase.db", allow_none=True)
     
     post_processing_workflow_column = ags.fields.Str(default=None,
                                               description = "column name in specimen_file depicting which post-processing workflow to run",
