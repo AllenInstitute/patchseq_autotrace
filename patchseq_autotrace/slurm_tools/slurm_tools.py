@@ -47,7 +47,7 @@ def bil_psc_adjust_slurm_kwargs(kwarg_dict,gpu):
     
 def submit_specimen_pipeline_to_slurm(specimen_id, autotrace_directory, chunk_size, model_name, virtualenvironment,
                                       parent_job_id, start_condition, gpu_device, database_file, dynamic_resource_requests,
-                                      post_processing_workflow, bil_data_package=None):
+                                      post_processing_workflow, bil_data_package=None, anaconda_version_to_activate = None):
     """
     Will create a slurm workflow DAG for each step in the autotrace pipeline for the given specimen and submit the
     jobs to the slurm scheduler. Each step of the pipeline requires that the previous step be completed without fail
@@ -67,9 +67,14 @@ def submit_specimen_pipeline_to_slurm(specimen_id, autotrace_directory, chunk_si
     :param gpu_device: (int): which gpu device to use for segmentation
     :param post_processing_workflow (str or None): if not None, indicates which post-processing workflow to run on raw swc file
     :param bil_data_package (dict):
+    :param anaconda_version_to_activate (str): which version of anaconda to activate (used for running on bridges psc)
     :return:
     """
     
+    conda_load_str = ""
+    if anaconda_version_to_activate is not None:
+        conda_load_str = f"module load {anaconda_version_to_activate}"
+        
     # Estimate stack size and adjust slurm job parameters accordingly
     use_multiprocessing = True
     segmentation_time = "72:00:00"
@@ -144,7 +149,7 @@ def submit_specimen_pipeline_to_slurm(specimen_id, autotrace_directory, chunk_si
         if (bil_data_package['image_storage_location'] is not None):
             pre_proc_command = pre_proc_command + " --raw_image_directory {}".format(bil_data_package['image_storage_location'] )
             
-    pre_proc_command_list = ["source ~/.bashrc", f"conda activate {virtualenvironment}", pre_proc_command]
+    pre_proc_command_list = ["source ~/.bashrc", conda_load_str, f"conda activate {virtualenvironment}", pre_proc_command]
     
     # Segmentation
     segmentation_job_file = os.path.join(job_dir, f"{specimen_id}_segmentation.sh")
@@ -161,7 +166,7 @@ def submit_specimen_pipeline_to_slurm(specimen_id, autotrace_directory, chunk_si
         "--output": os.path.join(job_dir, f"{specimen_id}_segmentation.log")
     }
     seg_command = f"auto-segmentation --specimen_dir {specimen_dir} --chunk_size {chunk_size} --model_name {model_name} --gpu_device {gpu_device}  --sqlite_runs_table_id {specimen_runs_row_id} --autotrace_tracking_database {database_file}"
-    seg_command_list = ["source ~/.bashrc", f"conda activate {virtualenvironment}", seg_command]
+    seg_command_list = ["source ~/.bashrc", conda_load_str, f"conda activate {virtualenvironment}", seg_command]
 
     # Post-Process Segmentation
     post_proc_job_file = os.path.join(job_dir, f"{specimen_id}_post_proc.sh")
@@ -178,7 +183,7 @@ def submit_specimen_pipeline_to_slurm(specimen_id, autotrace_directory, chunk_si
 
     }
     post_proc_command = f"auto-post-proc --specimen_dir {specimen_dir} --model_name {model_name}  --sqlite_runs_table_id {specimen_runs_row_id} --autotrace_tracking_database {database_file}"
-    post_proc_command_list = ["source ~/.bashrc", f"conda activate {virtualenvironment}", post_proc_command]
+    post_proc_command_list = ["source ~/.bashrc", conda_load_str, f"conda activate {virtualenvironment}", post_proc_command]
 
     # Convert Post Processed Skeleton Stack To SWC
     skeleton_2_swc_job_file = os.path.join(job_dir, f"{specimen_id}_stack_2_swc.sh")
@@ -201,7 +206,7 @@ def submit_specimen_pipeline_to_slurm(specimen_id, autotrace_directory, chunk_si
             precalcualted_soma_y = bil_data_package['soma_y']       
             stack_2_swc_command = stack_2_swc_command + f" --precalcualted_soma_x {precalcualted_soma_x} --precalcualted_soma_y {precalcualted_soma_y}"
     
-    skeleton_2_swc_command_list = ["source ~/.bashrc", f"conda activate {virtualenvironment}", stack_2_swc_command]
+    skeleton_2_swc_command_list = ["source ~/.bashrc", conda_load_str, f"conda activate {virtualenvironment}", stack_2_swc_command]
 
     # Cleanup
     cleanup_job_file = os.path.join(job_dir, f"{specimen_id}_cleanup.sh")
@@ -217,7 +222,7 @@ def submit_specimen_pipeline_to_slurm(specimen_id, autotrace_directory, chunk_si
         "--output": os.path.join(job_dir, f"{specimen_id}_cleanup.log")
     }
     cleanup_command = f"auto-cleanup --specimen_dir {specimen_dir} --sqlite_runs_table_id {specimen_runs_row_id} --autotrace_tracking_database {database_file} --post_processing_workflow {post_processing_workflow} --job_dir {job_dir} --model_name {model_name}"
-    cleanup_command_list = ["source ~/.bashrc", f"conda activate {virtualenvironment}", cleanup_command]
+    cleanup_command_list = ["source ~/.bashrc", conda_load_str, f"conda activate {virtualenvironment}", cleanup_command]
 
     if bil_data_package is not None:
         # code will be ran on BIL, we will need to adjust resource requests to adhere to their

@@ -48,6 +48,8 @@ class IO_Schema(ags.ArgSchema):
                                               description = "column name in specimen_file depicting which post-processing workflow to run",
                                               allow_none=True) 
     
+    anaconda_version_to_activate = ags.fields.Str(default="anaconda3/2024.10-1", description='which anaconda module to load on bridges compute cluster')
+    
 def main(args, **kwargs):
     dynamic_resource_requests = args['dynamic_resource_requests']
     specimen_file = args['specimen_file']
@@ -63,6 +65,7 @@ def main(args, **kwargs):
     soma_x_column = args['soma_x_column']
     soma_y_column = args['soma_y_column']
     image_storage_location_column = args['image_storage_location_column']
+    anaconda_version_to_activate = args['anaconda_version_to_activate']
         
     # Will create the runs table if it does not exist
     if autotrace_tracking_database is not None:
@@ -143,6 +146,7 @@ def main(args, **kwargs):
                                                                       dynamic_resource_requests=dynamic_resource_requests,
                                                                       post_processing_workflow=pp_workflow,
                                                                       bil_data_package = bil_data_package,
+                                                                      anaconda_version_to_activate =anaconda_version_to_activate,
                                                                       )
 
             # Now cells from the subsequent batches will have to wait for an opening in a previous batch
