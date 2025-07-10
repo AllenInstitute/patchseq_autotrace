@@ -9,7 +9,7 @@ class IO_Schema(ags.ArgSchema):
     sqlite_runs_table_id = ags.fields.Int(description="unique ID key for runs table in the sqlite .db file",allow_none=True,default=None)
     precalcualted_soma_x = ags.fields.Float(default=None,allow_nan=True, allow_none=True, description = '63x soma x location. Useful when running on a compute host without lims query')
     precalcualted_soma_y = ags.fields.Float(default=None,allow_nan=True, allow_none=True, description = '63x soma y location. Useful when running on a compute host without lims query')
-    autotrace_tracking_database = ags.fields.InputFile(
+    autotrace_tracking_database = ags.fields.Str(
         description="sqlite tracking .db file. This should exist and have specimen_runs table setup as seen in "
                     "patchseq_autotrace.database_tools prior to running this script",allow_none=True,default=None)
 

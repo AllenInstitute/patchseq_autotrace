@@ -14,7 +14,7 @@ class IO_Schema(ags.ArgSchema):
     raw_image_directory = ags.fields.InputDir(default=None, allow_none=True, description='Path to raw image .tif directory ')
     chunk_size = ags.fields.Int(default=32, description="Num Tif Images to Stack into Chunks")
     sqlite_runs_table_id = ags.fields.Int(description="unique ID key for runs table in the sqlite .db file", default=None, allow_none=True)
-    autotrace_tracking_database = ags.fields.InputFile(
+    autotrace_tracking_database = ags.fields.Str(
         description="sqlite tracking .db file. This should exist and have specimen_runs table setup as seen in "
                     "patchseq_autotrace.database_tools prior to running this script", default=None, allow_none=True)
     generate_raw_mip = ags.fields.Bool(description="bool indicating whether to generate max intensity projection for raw images",
