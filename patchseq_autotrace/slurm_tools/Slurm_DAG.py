@@ -47,7 +47,8 @@ def submit_job_return_id(job_file, parent_job_id, start_condition):
     if parent_job_id:
         command = "sbatch --dependency={}:{} {}".format(start_condition, parent_job_id, job_file)
     else:
-        command = "sbatch {}".format(job_file)
+        command = "sbatch {}".format(job_file)    
+    print(f"I am trying to run the following job submission command:\n{command}")
     command_list = command.split(" ")
     result = subprocess.run(command_list, stdout=subprocess.PIPE)
     std_out = result.stdout.decode('utf-8')

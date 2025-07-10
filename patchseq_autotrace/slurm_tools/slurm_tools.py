@@ -112,21 +112,23 @@ def submit_specimen_pipeline_to_slurm(specimen_id, autotrace_directory, chunk_si
             job_dir = job_dir + "_{}".format(ct)
 
     # Initialize DataBase Tracking
-    submit_to_hpc_datetime = str(datetime.datetime.now())
-    output_dirname = os.path.basename(job_dir)
-    initial_input_tuple = (str(specimen_id), autotrace_code_version, submit_to_hpc_datetime, output_dirname)
-    initial_input_command = """
-    INSERT INTO specimen_runs(specimen_id, patchseq_autotrace_version, submit_datetime, output_dirname) 
-    VALUES (?,?,?,?) 
-    RETURNING run_id
-    """
-    con = sqlite3.connect(database_file)
-    cur = con.cursor()
-    cur.execute(initial_input_command, initial_input_tuple)
-    specimen_runs_row_id = cur.fetchone()[0]
-    con.commit()
-    cur.close()
-    con.close()
+    specimen_runs_row_id = None
+    if database_file is not None:
+        submit_to_hpc_datetime = str(datetime.datetime.now())
+        output_dirname = os.path.basename(job_dir)
+        initial_input_tuple = (str(specimen_id), autotrace_code_version, submit_to_hpc_datetime, output_dirname)
+        initial_input_command = """
+        INSERT INTO specimen_runs(specimen_id, patchseq_autotrace_version, submit_datetime, output_dirname) 
+        VALUES (?,?,?,?) 
+        RETURNING run_id
+        """
+        con = sqlite3.connect(database_file)
+        cur = con.cursor()
+        cur.execute(initial_input_command, initial_input_tuple)
+        specimen_runs_row_id = cur.fetchone()[0]
+        con.commit()
+        cur.close()
+        con.close()
 
     # configure slurm resources and commands for each step of processes
 
@@ -144,7 +146,10 @@ def submit_specimen_pipeline_to_slurm(specimen_id, autotrace_directory, chunk_si
         "--output": os.path.join(job_dir, f"{specimen_id}_pre_proc.log")
     }
     
-    pre_proc_command = f"auto-pre-proc --specimen_dir {specimen_dir} --chunk_size {chunk_size} --sqlite_runs_table_id {specimen_runs_row_id} --autotrace_tracking_database {database_file} --use_multiprocessing {use_multiprocessing}"
+    pre_proc_command = f"auto-pre-proc --specimen_dir {specimen_dir} --chunk_size {chunk_size} --autotrace_tracking_database {database_file} --use_multiprocessing {use_multiprocessing}"
+    if specimen_runs_row_id is not None:
+        pre_proc_command = pre_proc_command + f"--sqlite_runs_table_id {specimen_runs_row_id} "
+        
     if (bil_data_package is not None):
         if (bil_data_package['image_storage_location'] is not None):
             pre_proc_command = pre_proc_command + " --raw_image_directory {}".format(bil_data_package['image_storage_location'] )
@@ -165,7 +170,10 @@ def submit_specimen_pipeline_to_slurm(specimen_id, autotrace_directory, chunk_si
         "--partition": "celltypes",
         "--output": os.path.join(job_dir, f"{specimen_id}_segmentation.log")
     }
-    seg_command = f"auto-segmentation --specimen_dir {specimen_dir} --chunk_size {chunk_size} --model_name {model_name} --gpu_device {gpu_device}  --sqlite_runs_table_id {specimen_runs_row_id} --autotrace_tracking_database {database_file}"
+    seg_command = f"auto-segmentation --specimen_dir {specimen_dir} --chunk_size {chunk_size} --model_name {model_name} --gpu_device {gpu_device}  --autotrace_tracking_database {database_file}"
+    if specimen_runs_row_id is not None:
+        seg_command = seg_command + f"--sqlite_runs_table_id {specimen_runs_row_id} "
+    
     seg_command_list = ["source ~/.bashrc", conda_load_str, f"conda activate {virtualenvironment}", seg_command]
 
     # Post-Process Segmentation
@@ -180,9 +188,11 @@ def submit_specimen_pipeline_to_slurm(specimen_id, autotrace_directory, chunk_si
         "--time": "48:00:00",
         "--partition": "celltypes",
         "--output": os.path.join(job_dir, f"{specimen_id}_post_proc.log")
-
     }
-    post_proc_command = f"auto-post-proc --specimen_dir {specimen_dir} --model_name {model_name}  --sqlite_runs_table_id {specimen_runs_row_id} --autotrace_tracking_database {database_file}"
+    post_proc_command = f"auto-post-proc --specimen_dir {specimen_dir} --model_name {model_name}  --autotrace_tracking_database {database_file}"
+    if specimen_runs_row_id is not None:
+        post_proc_command = post_proc_command + f"--sqlite_runs_table_id {specimen_runs_row_id} "
+
     post_proc_command_list = ["source ~/.bashrc", conda_load_str, f"conda activate {virtualenvironment}", post_proc_command]
 
     # Convert Post Processed Skeleton Stack To SWC
@@ -198,8 +208,10 @@ def submit_specimen_pipeline_to_slurm(specimen_id, autotrace_directory, chunk_si
         "--partition": "celltypes",
         "--output": os.path.join(job_dir, f"{specimen_id}_stack_2_swc.log")
     }
-    stack_2_swc_command = f"auto-skeleton-to-swc --specimen_dir {specimen_dir} --model_name {model_name}  --sqlite_runs_table_id {specimen_runs_row_id} --autotrace_tracking_database {database_file}"
-    
+    stack_2_swc_command = f"auto-skeleton-to-swc --specimen_dir {specimen_dir} --model_name {model_name}  --autotrace_tracking_database {database_file}"
+    if specimen_runs_row_id is not None:
+        stack_2_swc_command = stack_2_swc_command + f"--sqlite_runs_table_id {specimen_runs_row_id} "
+        
     if bil_data_package is not None:
         if bil_data_package['soma_x'] is not None: 
             precalcualted_soma_x = bil_data_package['soma_x']
