@@ -46,10 +46,11 @@ def bil_psc_adjust_slurm_kwargs(kwarg_dict,gpu):
         sys.exit(1)
     kwarg_dict['--account'] = slurm_account
     
+    del kwarg_dict['--mem']
     if gpu:
         kwarg_dict['--partition'] = "GPU-shared"
-    else:
-        del kwarg_dict['--mem']
+    # else:
+    #     del kwarg_dict['--mem']
     return kwarg_dict
     
 def submit_specimen_pipeline_to_slurm(specimen_id, autotrace_directory, chunk_size, model_name, virtualenvironment,
@@ -84,7 +85,7 @@ def submit_specimen_pipeline_to_slurm(specimen_id, autotrace_directory, chunk_si
         
     # Estimate stack size and adjust slurm job parameters accordingly
     use_multiprocessing = True
-    segmentation_time = "72:00:00"
+    segmentation_time = "47:59:00"
     segmentation_memory = "62gb"
     pre_proc_time = "10:00:00"
     stack_thresh_gb = 50 # as of 2/2/2024, the average size of a human cell that failed is 75gb
@@ -92,8 +93,8 @@ def submit_specimen_pipeline_to_slurm(specimen_id, autotrace_directory, chunk_si
         estimated_stack_size_gb = estimate_stack_size(specimen_id, bil_data_package)
         if  estimated_stack_size_gb > stack_thresh_gb:
             use_multiprocessing = False
-            segmentation_memory = "96gb"
-            segmentation_time = "90:00:00"
+            segmentation_memory = "62gb"
+            segmentation_time = "47:59:00"
             pre_proc_time = "24:00:00"
     
     specimen_dir = os.path.abspath(os.path.join(autotrace_directory, str(specimen_id)))
@@ -173,7 +174,7 @@ def submit_specimen_pipeline_to_slurm(specimen_id, autotrace_directory, chunk_si
         "--cpus-per-task": "8",
         "--mem": segmentation_memory,
         "--time": segmentation_time,
-        "--gpus": "v100:1",
+        "--gpus": "v100-32:1",
         "--partition": "celltypes",
         "--output": os.path.join(job_dir, f"{specimen_id}_segmentation.log")
     }
