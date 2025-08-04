@@ -49,6 +49,7 @@ def bil_psc_adjust_slurm_kwargs(kwarg_dict,gpu):
     del kwarg_dict['--mem']
     if gpu:
         kwarg_dict['--partition'] = "GPU-shared"
+        del kwarg_dict['--cpus-per-task']
     # else:
     #     del kwarg_dict['--mem']
     return kwarg_dict
