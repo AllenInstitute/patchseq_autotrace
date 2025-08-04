@@ -1,4 +1,5 @@
 import os
+import sys
 import math
 import datetime
 import sqlite3
@@ -39,6 +40,12 @@ def bil_psc_adjust_slurm_kwargs(kwarg_dict,gpu):
     cpus_needed = int(math.ceil(required_memory/2))
     kwarg_dict['--cpus-per-task'] = str(cpus_needed)
     kwarg_dict['--partition'] = "RM-shared"
+    slurm_account = os.environ.get('SLURM_ACCOUNT')
+    if not slurm_account:
+        sys.stderr.write("Error: SLURM_ACCOUNT environment variable not set.\n")
+        sys.exit(1)
+    kwarg_dict['--account'] = slurm_account
+    
     if gpu:
         kwarg_dict['--partition'] = "GPU-shared"
     else:
