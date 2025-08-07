@@ -284,6 +284,7 @@ def extract_non_zero_coords(tif_directory, output_csv, max_list_size=100000, thr
         ys, xs = np.nonzero(img)
         intensities = img[ys, xs]
         num_coords = len(xs)
+        print(f"There are {num_coords} non zero coords in the z-slice of {fn}")
 
         all_intensities += intensities.sum()
         centroid_x += np.sum(xs * intensities)
