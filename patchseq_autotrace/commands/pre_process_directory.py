@@ -81,13 +81,13 @@ def main(args, **kwargs):
 
     # check if we need to run chunking. Chunking only needs to be run
     # if segmentation output is not present
+    chunk_dir = os.path.join(specimen_dir, "Chunks_of_{}".format(chunk_size))
     segmentation_exists = check_if_segmentation_exists(specimen_dir, 
                                                        chunk_dir, 
                                                        n_tiff_files)
     if not segmentation_exists:
             
         # Convert directory with single tif files to 3d chunks for segmentation
-        chunk_dir = os.path.join(specimen_dir, "Chunks_of_{}".format(chunk_size))
         if not os.path.exists(chunk_dir):
             os.mkdir(chunk_dir)
         convert_stack_to_3dchunks(chunk_size, processed_image_dir, chunk_dir)
