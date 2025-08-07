@@ -11,7 +11,7 @@ from patchseq_autotrace.statics import INTENSITY_THRESHOLDS
 
 
 def postprocess(specimen_dir, segmentation_dir, model_name, threshold=0.3, size_threshold=2000,
-                max_stack_size=7000000000):
+                max_stack_size=3500000000):
     """
 
     :param specimen_dir:
@@ -22,7 +22,7 @@ def postprocess(specimen_dir, segmentation_dir, model_name, threshold=0.3, size_
     :param max_stack_size:
     :return:
     """
-    print("Starting TO Post-Process")
+    print("Starting To Post-Process")
     intensity_threshold = INTENSITY_THRESHOLDS[model_name]
 
     savedir = os.path.join(specimen_dir, 'Skeleton')

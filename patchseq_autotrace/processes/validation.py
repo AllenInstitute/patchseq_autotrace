@@ -11,7 +11,30 @@ import numpy as np
 from patchseq_autotrace.statics import MODEL_NAME_PATHS
 from patchseq_autotrace.utils import natural_sort, get_tifs, get_jp2_slice_size_and_stack_length
 
+def check_if_segmentation_exists(specimen_dir, chunk_dir, number_of_individual_tiffs):
+    
+    # Check if segmentation already completed
+    seg_dir = os.path.join(specimen_dir, 'Segmentation')
+    segmentation_complete = True
+    for ch in range(1, 4):
+        ch_dir = os.path.join(seg_dir, f"ch{ch}")
+        if not os.path.isdir(ch_dir):
+            segmentation_complete = False
+            break
+        tiff_files = get_tifs(ch_dir)
+        if len(tiff_files) != number_of_individual_tiffs:
+            segmentation_complete = False
+            break
 
+    if segmentation_complete:
+        print(f"Segmentation already completed for: \n{specimen_dir}")
+        if os.path.isdir(chunk_dir):
+            print("Still cleaning up existing chunk_dir.")
+            shutil.rmtree(chunk_dir)
+        return segmentation_complete
+    
+    return segmentation_complete
+    
 def validate(model_name_version, specimen_dir, chunk_dir, bb, gpu, chunk_size):
     seg_dir = os.path.join(specimen_dir, 'Segmentation')
     if not os.path.isdir(seg_dir):
@@ -27,7 +50,11 @@ def validate(model_name_version, specimen_dir, chunk_dir, bb, gpu, chunk_size):
         bound_box_dict = json.load(f)
     
     number_of_individual_tiffs = bound_box_dict['num_tiff_files']
-        
+    
+    segmentation_complete = check_if_segmentation_exists(specimen_dir, chunk_dir, number_of_individual_tiffs)
+    if segmentation_complete:
+        return 
+    
     net = RSUNetMulti()
     data_text = MODEL_NAME_PATHS[model_name_version]
 

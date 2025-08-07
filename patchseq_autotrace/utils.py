@@ -260,7 +260,7 @@ def dir_to_mip(indir, max_num_file_to_load, mip_axis=0, ofile=None):
     return mip
 
 
-def extract_non_zero_coords(tif_directory, output_csv, max_list_size=500000, thresh=None):
+def extract_non_zero_coords(tif_directory, output_csv, max_list_size=100000, thresh=None):
     """
     given a director of tif images, return a dataframe of all non-zero coordinates found in the image stack
 
@@ -300,6 +300,7 @@ def extract_non_zero_coords(tif_directory, output_csv, max_list_size=500000, thr
                 writer = csv.writer(file)
                 writer.writerows(records)
                 records = []
+                iterative_item_counter = 0 # cant forget to reset this!
 
     # write remaining records
     if records:

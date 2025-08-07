@@ -134,6 +134,18 @@ def convert_stack_to_3dchunks(chunk_size, single_tif_dir, chunk_dir):
     counter = 0
     cv_stack = []
     list_of_files = get_tifs(single_tif_dir)
+    
+    total_files = len(list_of_files)
+    expected_chunks = (total_files + chunk_size - 1) // chunk_size  
+
+    # Check if all expected chunks already exist
+    existing_chunks = set(get_tifs(chunk_dir))
+    existing_chunk_names = set(f'chunk{i + 1}.tif' for i in range(expected_chunks))
+
+    if existing_chunk_names.issubset(existing_chunks):
+        print(f"All {expected_chunks} chunks already exist in '{chunk_dir}'. Skipping conversion.")
+        return
+    
     print("Generating 3D Chunks:")
     for files in tqdm(list_of_files):
         counter += 1

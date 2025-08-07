@@ -5,6 +5,7 @@ import json
 from patchseq_autotrace.processes.pre_process import (crop_dimensions, crop_and_invert_directory_multiproc,
                                                       solve_for_bounding_box, convert_stack_to_3dchunks,
                                                       get_image_stack_for_specimen)
+from patchseq_autotrace.processes.validation import check_if_segmentation_exists
 from patchseq_autotrace.utils import dir_to_mip
 from patchseq_autotrace.database_tools import status_update
 
@@ -78,11 +79,18 @@ def main(args, **kwargs):
         if not os.path.exists(mip_ofile):
             dir_to_mip(indir=processed_image_dir, ofile=mip_ofile, max_num_file_to_load=chunk_size, mip_axis=0)
 
-    # Convert directory with single tif files to 3d chunks for segmentation
-    chunk_dir = os.path.join(specimen_dir, "Chunks_of_{}".format(chunk_size))
-    if not os.path.exists(chunk_dir):
-        os.mkdir(chunk_dir)
-    convert_stack_to_3dchunks(chunk_size, processed_image_dir, chunk_dir)
+    # check if we need to run chunking. Chunking only needs to be run
+    # if segmentation output is not present
+    segmentation_exists = check_if_segmentation_exists(specimen_dir, 
+                                                       chunk_dir, 
+                                                       n_tiff_files)
+    if not segmentation_exists:
+            
+        # Convert directory with single tif files to 3d chunks for segmentation
+        chunk_dir = os.path.join(specimen_dir, "Chunks_of_{}".format(chunk_size))
+        if not os.path.exists(chunk_dir):
+            os.mkdir(chunk_dir)
+        convert_stack_to_3dchunks(chunk_size, processed_image_dir, chunk_dir)
 
     # remove single tif directory since it is no longer needed at this point
     # shutil.rmtree(input_image_dir)
