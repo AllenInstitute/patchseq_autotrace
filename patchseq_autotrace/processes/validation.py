@@ -52,6 +52,7 @@ def validate(model_name_version, specimen_dir, chunk_dir, bb, gpu, chunk_size):
     number_of_individual_tiffs = bound_box_dict['num_tiff_files']
     
     segmentation_complete = check_if_segmentation_exists(specimen_dir, chunk_dir, number_of_individual_tiffs)
+    print(f"From within the segmentation script, segmentation_complete bool = {segmentation_complete}")
     if segmentation_complete:
         return 
     
@@ -90,30 +91,30 @@ def validate(model_name_version, specimen_dir, chunk_dir, bb, gpu, chunk_size):
                     tif.imsave(im_file, this_image)
 
         
-        for ch in range(3):
-            # ch_dir = os.path.join(seg_dir, 'ch%d' % (ch + 1))
-            ch_dir = os.path.join(seg_dir, "ch{}".format(ch + 1))
-            number_of_segmented_tiffs = len([f for f in os.listdir(ch_dir) if '.tif' in f])
-            print('Number of individual tiffs = {}'.format(number_of_individual_tiffs))
-            print('Number of segmented tiffs = {}'.format(number_of_segmented_tiffs))
+    for ch in range(3):
+        # ch_dir = os.path.join(seg_dir, 'ch%d' % (ch + 1))
+        ch_dir = os.path.join(seg_dir, "ch{}".format(ch + 1))
+        number_of_segmented_tiffs = len([f for f in os.listdir(ch_dir) if '.tif' in f])
+        print('Number of individual tiffs = {}'.format(number_of_individual_tiffs))
+        print('Number of segmented tiffs = {}'.format(number_of_segmented_tiffs))
 
-            number_of_duplicates = number_of_segmented_tiffs - number_of_individual_tiffs
-            # assigning the number of duplicates to the difference in length between segmented dir and individual
-            # tiff dir.
-            if number_of_duplicates == 0:
-                print('no duplicates were made')
-                print('num duplicates = {}'.format(number_of_duplicates))
+        number_of_duplicates = number_of_segmented_tiffs - number_of_individual_tiffs
+        # assigning the number of duplicates to the difference in length between segmented dir and individual
+        # tiff dir.
+        if number_of_duplicates == 0:
+            print('no duplicates were made')
+            print('num duplicates = {}'.format(number_of_duplicates))
 
-            else:
-                print('num duplicates = {}'.format(number_of_duplicates))
-                # this means that list_of_segmented_files[-32:-number_of_uplicates] can be erased because of preprocessing
-                list_of_segmented_files = [x for x in natural_sort(get_tifs(ch_dir))]
-                second_index = chunk_size - number_of_duplicates
-                duplicate_segmentations = list_of_segmented_files[-chunk_size:-(second_index)]
-                print(duplicate_segmentations)
+        else:
+            print('num duplicates = {}'.format(number_of_duplicates))
+            # this means that list_of_segmented_files[-32:-number_of_uplicates] can be erased because of preprocessing
+            list_of_segmented_files = [x for x in natural_sort(get_tifs(ch_dir))]
+            second_index = chunk_size - number_of_duplicates
+            duplicate_segmentations = list_of_segmented_files[-chunk_size:-(second_index)]
+            print(duplicate_segmentations)
 
-                for files in duplicate_segmentations:
-                    os.remove(os.path.join(ch_dir, files))
+            for files in duplicate_segmentations:
+                os.remove(os.path.join(ch_dir, files))
 
     # delete chunk dir as soon as we no longer need it
     print("Deleting Chunked Tif Directory")

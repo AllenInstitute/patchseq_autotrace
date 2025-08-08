@@ -85,6 +85,7 @@ def main(args, **kwargs):
     segmentation_exists = check_if_segmentation_exists(specimen_dir, 
                                                        chunk_dir, 
                                                        n_tiff_files)
+    print(f"From pre-processing, segmentation_exists bool = {segmentation_exists}")
     if not segmentation_exists:
             
         # Convert directory with single tif files to 3d chunks for segmentation
